@@ -335,15 +335,19 @@
         scannerBtn.addEventListener('click', () => {
             const password = document.getElementById('aesPass').value;
             if(!password) return alert(langData[currentLang].passErr);
-            
             startScanner();
         });
 
         function startScanner() {
+            document.getElementById('reader').innerHTML = '';
             html5QrCode = new Html5Qrcode("reader");
-            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
             
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+                .catch(err => {
+                    console.error(err);
+                    alert("Akses kamera ditolak. Gunakan HTTPS.");
+                });
             scannerBtn.classList.add('hidden');
         }
 
@@ -356,14 +360,26 @@
                 resultArea.classList.remove('hidden');
                 
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
-                const decryptedBase64 = bytes.toString(CryptoJS.enc.Utf8);
+                const decryptedRaw = bytes.toString(CryptoJS.enc.Utf8);
                 
-                if (!decryptedBase64) throw new Error("Invalid password");
+                if (!decryptedRaw) throw new Error("Invalid password");
+
+                // Memisahkan metadata nama file (Pemisah |||)
+                const parts = decryptedRaw.split("|||");
+                let fileName = "SlinkyFile_Transferred.bin";
+                let base64Data = "";
+
+                if (parts.length > 1) {
+                    fileName = parts[0];
+                    base64Data = parts[1];
+                } else {
+                    base64Data = parts[0];
+                }
                 
-                const res = await fetch(decryptedBase64);
+                const res = await fetch(base64Data);
                 const blob = await res.blob();
                 
-                setupDownload(blob, "SlinkyFile_Transferred.bin");
+                setupDownload(blob, fileName);
                 alert(langData[currentLang].done);
             } catch (e) {
                 alert(langData[currentLang].decErr);
@@ -433,7 +449,9 @@
                     if(file.size > 2048) return alert(langData[currentLang].qrErr);
                     
                     const base64Data = await fileToBase64(file);
-                    const encrypted = CryptoJS.AES.encrypt(base64Data, password).toString();
+                    // Bundling Nama File + Data dengan pemisah |||
+                    const combined = file.name + "|||" + base64Data;
+                    const encrypted = CryptoJS.AES.encrypt(combined, password).toString();
                     
                     new QRCode(qrcodeDiv, {
                         text: encrypted,
