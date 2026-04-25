@@ -15,8 +15,8 @@
     <style>
         .gradient-bg { background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); }
         .glass-nav { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); }
+        #visitorCount { transition: all 0.5s ease-in-out; }
         
-        /* Konsistensi tampilan file list */
         .file-list-scroll { 
             max-height: 250px; 
             overflow-y: auto; 
@@ -345,11 +345,20 @@
             const password = document.getElementById('aesPass').value;
             try {
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
-                const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+                const rawData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+                // Rekonstruksi SDP dari format pendek
+                const signalData = { type: rawData.t, sdp: rawData.s.replace(/\n/g, '\r\n') };
                 statusMsg.innerText = "Connecting P2P...";
                 resultArea.classList.remove('hidden');
                 initWebRTC(false, signalData);
             } catch (e) { alert(langData[currentLang].decErr); }
+        }
+
+        // --- HELPER: Membuang metadata WebRTC agar SDP muat di QR ---
+        function mungeSDP(sdp) {
+            return sdp.split('\r\n')
+                .filter(line => !line.startsWith('a=candidate') && !line.startsWith('a=ice-options'))
+                .join('\n');
         }
 
         function initWebRTC(isSource, remoteSignal = null) {
@@ -359,15 +368,13 @@
             if (isSource) {
                 dataChannel = peerConnection.createDataChannel("fileTransfer", { ordered: true });
                 setupDataChannel();
+                peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
                 
                 peerConnection.onicecandidate = (event) => {
-                    // FIX: Hanya generate QR setelah gathering candidate SELESAI (null)
-                    if (event.candidate === null) {
+                    if (!event.candidate) { 
                         generateQRCode();
                     }
                 };
-
-                peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
             } else {
                 peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
                     .then(() => peerConnection.createAnswer())
@@ -382,30 +389,39 @@
 
         function generateQRCode() {
             const password = document.getElementById('aesPass').value;
-            // Pastikan kita mengambil localDescription yang SUDAH lengkap dengan candidate
-            const signal = JSON.stringify(peerConnection.localDescription);
+            // Gunakan format objek pendek untuk menghemat ruang QR
+            const minimalSignal = {
+                t: peerConnection.localDescription.type,
+                s: mungeSDP(peerConnection.localDescription.sdp)
+            };
+            const signalStr = JSON.stringify(minimalSignal);
+            
             try {
-                const encryptedSignal = CryptoJS.AES.encrypt(signal, password).toString();
+                const encryptedSignal = CryptoJS.AES.encrypt(signalStr, password).toString();
                 qrcodeDiv.innerHTML = '';
                 new QRCode(qrcodeDiv, { 
                     text: encryptedSignal, 
                     width: 256, 
                     height: 256,
-                    correctLevel: QRCode.CorrectLevel.L // FIX: Level L agar QR tidak terlalu rapat/kecil
+                    correctLevel: QRCode.CorrectLevel.L // Low correction agar titik QR lebih besar
                 });
                 qrContainer.classList.remove('hidden');
-                statusMsg.innerText = currentLang === 'en' ? "QR Signal Ready!" : "Sinyal QR Siap!";
+                statusMsg.innerText = "QR Signal Ready!";
             } catch(e) { statusMsg.innerText = "Error: Too much data for QR"; }
         }
 
         function setupDataChannel() {
             dataChannel.onopen = async () => {
-                statusMsg.innerText = currentLang === 'en' ? "Connected! Transferring..." : "Terhubung! Mengirim...";
+                statusMsg.innerText = "Connected! Transferring...";
                 if (selectedFiles.length > 0) {
                     const file = selectedFiles[0];
                     const reader = new FileReader();
                     reader.readAsDataURL(file);
-                    reader.onload = () => dataChannel.send(JSON.stringify({ name: file.name, data: reader.result }));
+                    reader.onload = () => {
+                        if(dataChannel.readyState === "open") {
+                            dataChannel.send(JSON.stringify({ name: file.name, data: reader.result }));
+                        }
+                    };
                 }
             };
             dataChannel.onmessage = (e) => {
@@ -414,7 +430,7 @@
                 link.href = msg.data;
                 link.download = msg.name;
                 link.click();
-                statusMsg.innerText = currentLang === 'en' ? "Transfer Complete!" : "Transfer Selesai!";
+                statusMsg.innerText = "Transfer Complete!";
             };
         }
 
@@ -422,7 +438,7 @@
             const action = document.getElementById('actionType').value;
             const password = document.getElementById('aesPass').value;
             if (selectedFiles.length === 0) return alert(langData[currentLang].alert);
-            if ((action === 'encrypt' || action === 'decrypt' || action === 'qr-share') && !password) return alert(langData[currentLang].passErr);
+            if ((action.includes('encrypt') || action === 'qr-share') && !password) return alert(langData[currentLang].passErr);
 
             resultArea.classList.remove('hidden');
             qrContainer.classList.add('hidden');
