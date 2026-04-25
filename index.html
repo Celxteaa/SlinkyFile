@@ -30,7 +30,6 @@
         .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* Perbaikan Kotak QR agar konsisten dan tidak meluap */
         #qrcode { 
             display: flex; 
             justify-content: center; 
@@ -50,6 +49,22 @@
         }
         #reader { border: none !important; }
         #reader video { border-radius: 20px; object-fit: cover; }
+
+        /* Style Baru untuk Timer */
+        #timerBarContainer {
+            width: 100%;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin-top: 12px;
+            overflow: hidden;
+        }
+        #timerBar {
+            height: 100%;
+            background: #3b82f6;
+            width: 100%;
+            transition: width 1s linear;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans transition-all">
@@ -160,7 +175,8 @@
                     
                     <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[300px] flex flex-col items-center">
                         <div id="qrcode"></div>
-                        <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">P2P Signal QR Code</p>
+                        <div id="timerBarContainer"><div id="timerBar"></div></div>
+                        <p id="qrLabel" class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">P2P Signal QR Code</p>
                         <button onclick="downloadQR()" class="mt-2 text-[10px] bg-slate-100 text-slate-700 px-3 py-1 rounded-lg font-bold hover:bg-slate-200 transition">💾 Download QR</button>
                     </div>
 
@@ -208,6 +224,7 @@
                 decErr: 'Failed. Check password or connection.',
                 imgErr: 'Only images can be processed!',
                 qrErr: 'Metadata too large for QR.',
+                expiredErr: 'QR Code expired! Please refresh and try again.',
                 privTitle: 'Privacy Policy',
                 privText: 'SlinkyFile operates entirely in your browser. We never upload your files to any server. All processing is done locally using your device resources, ensuring your data remains 100% private.',
                 warning: 'CAUTION: We don\'t store passwords. If you forget it, your encrypted files are lost forever.'
@@ -241,6 +258,7 @@
                 decErr: 'Gagal! Periksa password atau koneksi.',
                 imgErr: 'Hanya file gambar yang bisa diproses!',
                 qrErr: 'Metadata terlalu besar untuk QR.',
+                expiredErr: 'QR Code Kadaluarsa! Silakan buat ulang.',
                 privTitle: 'Kebijakan Privasi',
                 privText: 'SlinkyFile beroperasi sepenuhnya di browser Anda. Kami tidak pernah mengunggah file Anda ke server mana pun. Semua pemrosesan dilakukan secara lokal menggunakan sumber daya perangkat Anda, data Anda tetap 100% pribadi.',
                 warning: 'PERINGATAN: Kami tidak menyimpan password. Jika Anda lupa, file yang dienkripsi akan hilang selamanya.'
@@ -252,6 +270,7 @@
         let selectedFiles = [];
         let peerConnection = null;
         let dataChannel = null;
+        let sessionTimeout = null;
 
         function renderFileList() {
             const fileList = document.getElementById('fileList');
@@ -362,7 +381,7 @@
             }).join('|');
         }
 
-        function decompressSDP(compact, type) {
+        function decompressSDP(compact) {
             let sdp = `v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\na=msid-semantic: WMS\r\n`;
             compact.split('|').forEach(line => sdp += line + '\r\n');
             return sdp;
@@ -399,9 +418,16 @@
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
                 const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
                 
+                // Validasi Masa Berlaku QR (Maksimal 2 menit / 120000 ms)
+                const now = Date.now();
+                if (signalData.ts && (now - signalData.ts > 120000)) {
+                    alert(langData[currentLang].expiredErr);
+                    return;
+                }
+
                 resultArea.classList.remove('hidden');
                 downloadBtn.classList.add('hidden'); 
-                const fullSDP = decompressSDP(signalData.s, signalData.t);
+                const fullSDP = decompressSDP(signalData.s);
 
                 if (signalData.t === 'offer') {
                     statusMsg.innerText = "Processing Offer...";
@@ -418,6 +444,17 @@
             const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
             peerConnection = new RTCPeerConnection(config);
 
+            // Pantau Status Koneksi
+            peerConnection.oniceconnectionstatechange = () => {
+                const state = peerConnection.iceConnectionState;
+                if(state === 'connected') {
+                    statusMsg.innerText = "Connected! Sending...";
+                } else if(state === 'failed' || state === 'disconnected') {
+                    statusMsg.innerText = "Connection Failed. Please Retry.";
+                    statusMsg.classList.add('text-red-500');
+                }
+            };
+
             if (isSource) {
                 dataChannel = peerConnection.createDataChannel("fileTransfer");
                 setupDataChannel();
@@ -433,19 +470,45 @@
                 if (!e.candidate) { 
                     const password = document.getElementById('aesPass').value;
                     const compactSDP = compressSDP(peerConnection.localDescription.sdp);
-                    const signal = JSON.stringify({ t: peerConnection.localDescription.type, s: compactSDP });
+                    // Tambahkan timestamp (ts) pada signal data
+                    const signal = JSON.stringify({ 
+                        t: peerConnection.localDescription.type, 
+                        s: compactSDP, 
+                        ts: Date.now() 
+                    });
                     const encrypted = CryptoJS.AES.encrypt(signal, password).toString();
                     
                     qrcodeDiv.innerHTML = '';
                     new QRCode(qrcodeDiv, { text: encrypted, width: 250, height: 250 });
                     qrContainer.classList.remove('hidden');
                     statusMsg.innerText = isSource ? "Scan Offer QR on Receiver" : "Scan Answer QR back on Sender";
+                    startSessionTimer();
                 }
             };
         }
 
+        function startSessionTimer() {
+            if(sessionTimeout) clearInterval(sessionTimeout);
+            const timerBar = document.getElementById('timerBar');
+            let timeLeft = 120; // 2 Menit
+            timerBar.style.width = "100%";
+            
+            sessionTimeout = setInterval(() => {
+                timeLeft--;
+                let percentage = (timeLeft / 120) * 100;
+                timerBar.style.width = percentage + "%";
+                
+                if (timeLeft <= 0) {
+                    clearInterval(sessionTimeout);
+                    qrContainer.classList.add('hidden');
+                    statusMsg.innerText = langData[currentLang].expiredErr;
+                }
+            }, 1000);
+        }
+
         function setupDataChannel() {
             dataChannel.onopen = () => {
+                if(sessionTimeout) clearInterval(sessionTimeout);
                 statusMsg.innerText = "Connected! Sending...";
                 if (selectedFiles.length > 0) {
                     const file = selectedFiles[0];
@@ -461,7 +524,6 @@
             };
         }
 
-        // Fungsi Download QR Code
         function downloadQR() {
             const img = qrcodeDiv.querySelector('img');
             const canvas = qrcodeDiv.querySelector('canvas');
@@ -485,6 +547,7 @@
             qrContainer.classList.add('hidden');
             downloadBtn.classList.add('hidden');
             statusMsg.innerText = langData[currentLang].wait;
+            statusMsg.classList.remove('text-red-500');
 
             try {
                 const zip = new JSZip();
