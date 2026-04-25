@@ -50,7 +50,6 @@
         #reader { border: none !important; }
         #reader video { border-radius: 20px; object-fit: cover; }
 
-        /* Style Baru untuk Timer */
         #timerBarContainer {
             width: 100%;
             height: 4px;
@@ -418,7 +417,6 @@
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
                 const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
                 
-                // Validasi Masa Berlaku QR (Maksimal 2 menit / 120000 ms)
                 const now = Date.now();
                 if (signalData.ts && (now - signalData.ts > 120000)) {
                     alert(langData[currentLang].expiredErr);
@@ -444,7 +442,6 @@
             const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
             peerConnection = new RTCPeerConnection(config);
 
-            // Pantau Status Koneksi
             peerConnection.oniceconnectionstatechange = () => {
                 const state = peerConnection.iceConnectionState;
                 if(state === 'connected') {
@@ -470,7 +467,6 @@
                 if (!e.candidate) { 
                     const password = document.getElementById('aesPass').value;
                     const compactSDP = compressSDP(peerConnection.localDescription.sdp);
-                    // Tambahkan timestamp (ts) pada signal data
                     const signal = JSON.stringify({ 
                         t: peerConnection.localDescription.type, 
                         s: compactSDP, 
@@ -479,7 +475,14 @@
                     const encrypted = CryptoJS.AES.encrypt(signal, password).toString();
                     
                     qrcodeDiv.innerHTML = '';
-                    new QRCode(qrcodeDiv, { text: encrypted, width: 250, height: 250 });
+                    // PENYESUAIAN: Level L (Low) dan Quiet Zone (Margin)
+                    new QRCode(qrcodeDiv, { 
+                        text: encrypted, 
+                        width: 250, 
+                        height: 250,
+                        correctLevel : QRCode.CorrectLevel.L,
+                        margin: 4
+                    });
                     qrContainer.classList.remove('hidden');
                     statusMsg.innerText = isSource ? "Scan Offer QR on Receiver" : "Scan Answer QR back on Sender";
                     startSessionTimer();
@@ -490,7 +493,7 @@
         function startSessionTimer() {
             if(sessionTimeout) clearInterval(sessionTimeout);
             const timerBar = document.getElementById('timerBar');
-            let timeLeft = 120; // 2 Menit
+            let timeLeft = 120; 
             timerBar.style.width = "100%";
             
             sessionTimeout = setInterval(() => {
