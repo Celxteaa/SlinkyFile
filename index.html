@@ -193,7 +193,7 @@
                 optQr: 'Transfer Aman: Buat QR Code',
                 exec: 'Proses Sekarang',
                 scanBtn: '📷 Buka Scanner Kamera',
-                flowTitle: 'Cara Menggunakan Transfer Aman:',
+                flowTitle: 'Cara Menggunakan:',
                 flowList: [
                     '1. Masukkan password yang sama dengan saat membuat QR.',
                     '2. Klik "Buka Scanner Kamera" dan izinkan akses kamera.',
@@ -379,7 +379,21 @@
                 const res = await fetch(base64Data);
                 const blob = await res.blob();
                 
-                setupDownload(blob, fileName);
+                // SETUP DOWNLOAD & OTOMATIS TRIGGER
+                const url = URL.createObjectURL(blob);
+                downloadBtn.href = url;
+                downloadBtn.download = fileName;
+                statusMsg.innerText = langData[currentLang].done;
+                downloadBtn.innerText = currentLang === 'en' ? 'Download Now' : 'Unduh Sekarang';
+                
+                // OTOMATIS DOWNLOAD
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
                 alert(langData[currentLang].done);
             } catch (e) {
                 alert(langData[currentLang].decErr);
@@ -449,7 +463,6 @@
                     if(file.size > 2048) return alert(langData[currentLang].qrErr);
                     
                     const base64Data = await fileToBase64(file);
-                    // Bundling Nama File + Data dengan pemisah |||
                     const combined = file.name + "|||" + base64Data;
                     const encrypted = CryptoJS.AES.encrypt(combined, password).toString();
                     
