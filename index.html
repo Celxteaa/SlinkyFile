@@ -30,8 +30,24 @@
         .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        #qrcode { display: flex; justify-content: center; align-items: center; padding: 10px; background: white; border-radius: 12px; }
-        #qrcode img { max-width: 100%; height: auto; border: 4px solid white; }
+        /* Perbaikan Kotak QR agar konsisten dan tidak meluap */
+        #qrcode { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            padding: 10px; 
+            background: white; 
+            border-radius: 12px;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            overflow: hidden;
+        }
+        #qrcode img, #qrcode canvas { 
+            max-width: 100% !important; 
+            height: auto !important; 
+            border: 4px solid white;
+            display: block;
+        }
         #reader { border: none !important; }
         #reader video { border-radius: 20px; object-fit: cover; }
     </style>
@@ -142,9 +158,10 @@
                         <p id="sizeMsg" class="text-slate-400 text-sm mt-1"></p>
                     </div>
                     
-                    <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[300px]">
+                    <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[300px] flex flex-col items-center">
                         <div id="qrcode"></div>
                         <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">P2P Signal QR Code</p>
+                        <button onclick="downloadQR()" class="mt-2 text-[10px] bg-slate-100 text-slate-700 px-3 py-1 rounded-lg font-bold hover:bg-slate-200 transition">💾 Download QR</button>
                     </div>
 
                     <a id="downloadBtn" class="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition shadow-lg cursor-pointer">Download</a>
@@ -209,7 +226,7 @@
                 optDecrypt: 'Buka: Dekripsi File (.locked)',
                 optQr: 'Transfer Aman: WebRTC QR',
                 exec: 'Proses Sekarang',
-                scanBtn: '📷 Kamera',
+                scanBtn: '📷 Camera',
                 flowTitle: 'Cara Transfer Aman (Dua Arah):',
                 flowList: [
                     '1. Pengirim: Masukkan password & klik "Proses Sekarang".',
@@ -366,7 +383,6 @@
             }
         }
 
-        // FEATURE: Scan from Image
         document.getElementById('qrUpload').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -384,7 +400,7 @@
                 const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
                 
                 resultArea.classList.remove('hidden');
-                downloadBtn.classList.add('hidden'); // Sembunyikan download saat WebRTC
+                downloadBtn.classList.add('hidden'); 
                 const fullSDP = decompressSDP(signalData.s, signalData.t);
 
                 if (signalData.t === 'offer') {
@@ -443,6 +459,20 @@
                 const a = document.createElement('a'); a.href = msg.d; a.download = msg.n; a.click();
                 statusMsg.innerText = "File Received!";
             };
+        }
+
+        // Fungsi Download QR Code
+        function downloadQR() {
+            const img = qrcodeDiv.querySelector('img');
+            const canvas = qrcodeDiv.querySelector('canvas');
+            const link = document.createElement('a');
+            link.download = 'SlinkyFile_Signal_QR.png';
+            if (img && img.src) {
+                link.href = img.src;
+            } else if (canvas) {
+                link.href = canvas.toDataURL("image/png");
+            }
+            link.click();
         }
 
         document.getElementById('processBtn').addEventListener('click', async () => {
