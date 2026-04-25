@@ -135,7 +135,7 @@
                         <p id="sizeMsg" class="text-slate-400 text-sm mt-1"></p>
                     </div>
                     
-                    <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[300px]">
+                    <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[320px]">
                         <div id="qrcode" class="flex justify-center"></div>
                         <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">Scan with receiver device</p>
                     </div>
@@ -154,6 +154,7 @@
     </main>
 
     <script>
+        // Logika Bahasa & Visitor Tetap Sama (Sesuai Permintaan)
         const langData = {
             en: {
                 heroTitle: 'Any File. <span class="text-blue-600">Zero Upload.</span>',
@@ -304,7 +305,6 @@
             document.getElementById('warningText').innerText = d.warning;
         }
 
-        // VISITOR COUNT
         async function getCount() {
             const countEl = document.getElementById('visitorCount');
             try {
@@ -319,22 +319,19 @@
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        // --- WEB RTC ENGINE (FIXED FOR SMALL QR) ---
+        // --- WEB RTC ENGINE (FIXED FOR CAMERA SCANNING) ---
         const statusMsg = document.getElementById('statusMsg');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
         const resultArea = document.getElementById('resultArea');
         const downloadBtn = document.getElementById('downloadBtn');
 
-        // Fungsi pemangkas SDP agar QR kecil
-        function limitSDP(sdp) {
+        // Fungsi pengecil data SDP (WebRTC Metadata) agar QR tidak rapat
+        function compressSDP(sdp) {
             return sdp.split('\r\n').filter(line => {
-                return line.startsWith('v=') || line.startsWith('o=') || line.startsWith('s=') || 
-                       line.startsWith('t=') || line.startsWith('m=') || line.startsWith('c=') || 
-                       line.startsWith('a=rtpmap') || line.startsWith('a=fmtp') || 
-                       (line.startsWith('a=setup')) || (line.startsWith('a=mid')) ||
-                       (line.startsWith('a=fingerprint')) || (line.startsWith('a=ice-ufrag')) ||
-                       (line.startsWith('a=ice-pwd'));
+                return line.indexOf('a=candidate') === -1 && 
+                       line.indexOf('a=extmap') === -1 &&
+                       line.indexOf('a=rtcp-fb') === -1;
             }).join('\n');
         }
 
@@ -359,16 +356,18 @@
             stopScanner();
             const password = document.getElementById('aesPass').value;
             try {
+                // 1. Dekripsi AES
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
-                const b64 = bytes.toString(CryptoJS.enc.Utf8);
-                // Inflate data yang dikompres pako
-                const json = pako.inflate(atob(b64), { to: 'string' });
+                const encryptedB64 = bytes.toString(CryptoJS.enc.Utf8);
+                // 2. Decompress Gzip (Pako)
+                const binaryData = Uint8Array.from(atob(encryptedB64), c => c.charCodeAt(0));
+                const json = pako.ungzip(binaryData, { to: 'string' });
                 const signalData = JSON.parse(json);
                 
                 statusMsg.innerText = "Connecting P2P...";
                 resultArea.classList.remove('hidden');
                 
-                // Kembalikan format baris SDP
+                // 3. Rekonstruksi WebRTC Signal
                 initWebRTC(false, { type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') });
             } catch (e) { alert(langData[currentLang].decErr); }
         }
@@ -383,9 +382,7 @@
                 peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
                 
                 peerConnection.onicecandidate = (event) => {
-                    if (!event.candidate) { 
-                        generateQRCode();
-                    }
+                    if (!event.candidate) generateQRCode();
                 };
             } else {
                 peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
@@ -401,29 +398,30 @@
 
         function generateQRCode() {
             const password = document.getElementById('aesPass').value;
-            // Gunakan limitSDP untuk memangkas data
-            const smallSDP = limitSDP(peerConnection.localDescription.sdp);
-            const signalObj = { t: peerConnection.localDescription.type, s: smallSDP };
+            const sdpClean = compressSDP(peerConnection.localDescription.sdp);
+            const signalObj = { t: peerConnection.localDescription.type, s: sdpClean };
             
             try {
-                // Kompres dengan pako lalu enkripsi
-                const compressed = pako.deflate(JSON.stringify(signalObj), { to: 'string' });
-                const encryptedSignal = CryptoJS.AES.encrypt(btoa(compressed), password).toString();
+                // 1. Kompresi JSON dengan Gzip (Pako)
+                const gzipped = pako.gzip(JSON.stringify(signalObj));
+                const b64 = btoa(String.fromCharCode.apply(null, gzipped));
+                // 2. Enkripsi AES agar aman di publik
+                const finalStr = CryptoJS.AES.encrypt(b64, password).toString();
                 
                 qrcodeDiv.innerHTML = '';
                 new QRCode(qrcodeDiv, { 
-                    text: encryptedSignal, 
-                    width: 280, 
-                    height: 280,
-                    correctLevel: QRCode.CorrectLevel.L // Low error correction = bigger pixel squares
+                    text: finalStr, 
+                    width: 300, 
+                    height: 300,
+                    correctLevel: QRCode.CorrectLevel.L // Level L = Kotak QR lebih besar, mudah di-scan kamera HP
                 });
                 qrContainer.classList.remove('hidden');
                 statusMsg.innerText = "QR Signal Ready!";
-            } catch(e) { statusMsg.innerText = "Error generating QR"; }
+            } catch(e) { statusMsg.innerText = "Error: Data too complex"; }
         }
 
         function setupDataChannel() {
-            dataChannel.onopen = async () => {
+            dataChannel.onopen = () => {
                 statusMsg.innerText = "Connected! Transferring...";
                 if (selectedFiles.length > 0) {
                     const file = selectedFiles[0];
