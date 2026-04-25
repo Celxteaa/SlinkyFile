@@ -154,7 +154,6 @@
     </main>
 
     <script>
-        // Logika Bahasa & Visitor Tetap Sama (Sesuai Permintaan)
         const langData = {
             en: {
                 heroTitle: 'Any File. <span class="text-blue-600">Zero Upload.</span>',
@@ -229,6 +228,15 @@
         let selectedFiles = [];
         let peerConnection = null;
         let dataChannel = null;
+
+        const rtcConfig = { 
+            iceServers: [
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "stun:stun1.l.google.com:19302" },
+                { urls: "stun:stun2.l.google.com:19302" },
+                { urls: "stun:stun3.l.google.com:19302" }
+            ] 
+        };
 
         function renderFileList() {
             const fileList = document.getElementById('fileList');
@@ -319,21 +327,12 @@
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        // --- WEB RTC ENGINE (FIXED FOR CAMERA SCANNING) ---
+        // --- WEB RTC ENGINE (STABILITY FIX) ---
         const statusMsg = document.getElementById('statusMsg');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
         const resultArea = document.getElementById('resultArea');
         const downloadBtn = document.getElementById('downloadBtn');
-
-        // Fungsi pengecil data SDP (WebRTC Metadata) agar QR tidak rapat
-        function compressSDP(sdp) {
-            return sdp.split('\r\n').filter(line => {
-                return line.indexOf('a=candidate') === -1 && 
-                       line.indexOf('a=extmap') === -1 &&
-                       line.indexOf('a=rtcp-fb') === -1;
-            }).join('\n');
-        }
 
         function startScanner() {
             document.getElementById('reader').innerHTML = '';
@@ -356,10 +355,8 @@
             stopScanner();
             const password = document.getElementById('aesPass').value;
             try {
-                // 1. Dekripsi AES
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
                 const encryptedB64 = bytes.toString(CryptoJS.enc.Utf8);
-                // 2. Decompress Gzip (Pako)
                 const binaryData = Uint8Array.from(atob(encryptedB64), c => c.charCodeAt(0));
                 const json = pako.ungzip(binaryData, { to: 'string' });
                 const signalData = JSON.parse(json);
@@ -367,23 +364,23 @@
                 statusMsg.innerText = "Connecting P2P...";
                 resultArea.classList.remove('hidden');
                 
-                // 3. Rekonstruksi WebRTC Signal
                 initWebRTC(false, { type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') });
             } catch (e) { alert(langData[currentLang].decErr); }
         }
 
         function initWebRTC(isSource, remoteSignal = null) {
-            const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-            peerConnection = new RTCPeerConnection(config);
+            if (peerConnection) peerConnection.close();
+            peerConnection = new RTCPeerConnection(rtcConfig);
 
             if (isSource) {
                 dataChannel = peerConnection.createDataChannel("fileTransfer", { ordered: true });
-                setupDataChannel();
-                peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
+                setupDataChannelHooks();
                 
                 peerConnection.onicecandidate = (event) => {
                     if (!event.candidate) generateQRCode();
                 };
+                
+                peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
             } else {
                 peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
                     .then(() => peerConnection.createAnswer())
@@ -391,52 +388,78 @@
 
                 peerConnection.ondatachannel = (event) => {
                     dataChannel = event.channel;
-                    setupDataChannel();
+                    setupDataChannelHooks();
                 };
             }
+
+            peerConnection.onconnectionstatechange = () => {
+                const state = peerConnection.connectionState;
+                if(state === 'connected') statusMsg.innerText = "CONNECTED! Ready.";
+                if(state === 'failed') statusMsg.innerText = "P2P Failed. Try same WiFi.";
+            };
         }
 
         function generateQRCode() {
             const password = document.getElementById('aesPass').value;
-            const sdpClean = compressSDP(peerConnection.localDescription.sdp);
-            const signalObj = { t: peerConnection.localDescription.type, s: sdpClean };
+            // Gunakan SDP mentah agar ICE candidate lengkap terbawa
+            const signalObj = { 
+                t: peerConnection.localDescription.type, 
+                s: peerConnection.localDescription.sdp 
+            };
             
             try {
-                // 1. Kompresi JSON dengan Gzip (Pako)
                 const gzipped = pako.gzip(JSON.stringify(signalObj));
                 const b64 = btoa(String.fromCharCode.apply(null, gzipped));
-                // 2. Enkripsi AES agar aman di publik
                 const finalStr = CryptoJS.AES.encrypt(b64, password).toString();
                 
                 qrcodeDiv.innerHTML = '';
                 new QRCode(qrcodeDiv, { 
                     text: finalStr, 
-                    width: 300, 
-                    height: 300,
-                    correctLevel: QRCode.CorrectLevel.L // Level L = Kotak QR lebih besar, mudah di-scan kamera HP
+                    width: 320, 
+                    height: 320,
+                    correctLevel: QRCode.CorrectLevel.L 
                 });
                 qrContainer.classList.remove('hidden');
                 statusMsg.innerText = "QR Signal Ready!";
             } catch(e) { statusMsg.innerText = "Error: Data too complex"; }
         }
 
-        function setupDataChannel() {
+        function setupDataChannelHooks() {
+            if (!dataChannel) return;
+
             dataChannel.onopen = () => {
-                statusMsg.innerText = "Connected! Transferring...";
+                statusMsg.innerText = "Transmitting...";
                 if (selectedFiles.length > 0) {
                     const file = selectedFiles[0];
                     const reader = new FileReader();
-                    reader.readAsDataURL(file);
-                    reader.onload = () => dataChannel.send(JSON.stringify({ name: file.name, data: reader.result }));
+                    reader.readAsArrayBuffer(file);
+                    reader.onload = () => {
+                        // Kirim meta sebagai JSON string
+                        dataChannel.send(JSON.stringify({ type: 'meta', name: file.name }));
+                        // Kirim data sebagai ArrayBuffer
+                        dataChannel.send(reader.result);
+                    };
                 }
             };
+
+            let currentFileName = "";
             dataChannel.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                const link = document.createElement('a');
-                link.href = msg.data;
-                link.download = msg.name;
-                link.click();
-                statusMsg.innerText = "Transfer Complete!";
+                if (typeof e.data === 'string') {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'meta') {
+                        currentFileName = msg.name;
+                        statusMsg.innerText = "Receiving: " + currentFileName;
+                    }
+                } else {
+                    // Data file masuk sebagai ArrayBuffer
+                    const blob = new Blob([e.data]);
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = currentFileName || "downloaded_file";
+                    link.click();
+                    statusMsg.innerText = "Transfer Complete!";
+                }
             };
         }
 
