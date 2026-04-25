@@ -118,12 +118,12 @@
             <div id="scannerSection" class="hidden mt-8 animate-in">
                 <div id="reader" class="w-full overflow-hidden rounded-3xl bg-slate-100"></div>
                 <div class="mt-6 p-6 bg-blue-50 rounded-2xl border border-blue-100">
-                    <h4 id="flow-title" class="font-black text-blue-700 text-xs uppercase mb-3">How to use:</h4>
+                    <h4 id="flow-title" class="font-black text-blue-700 text-xs uppercase mb-3">How to use Secure Transfer:</h4>
                     <ul id="flow-list" class="text-[11px] text-blue-600 space-y-2 italic font-medium">
-                        <li>1. Enter the same password used to create the QR.</li>
-                        <li>2. Click 'Open Webcam Scanner' and allow camera access.</li>
-                        <li>3. Point camera at the QR code on the other device.</li>
-                        <li>4. The file will automatically transfer via WebRTC.</li>
+                        <li>1. Sender: Enter password & click "Execute Task".</li>
+                        <li>2. Receiver: Enter password, click "Scanner" & scan Sender's QR.</li>
+                        <li>3. Receiver: Device will generate an Answer QR.</li>
+                        <li>4. Sender: Click "Scan Answer" & scan the Receiver's QR to connect.</li>
                     </ul>
                 </div>
             </div>
@@ -137,7 +137,7 @@
                     
                     <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[300px]">
                         <div id="qrcode" class="flex justify-center"></div>
-                        <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">Scan with receiver device</p>
+                        <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">P2P Signal QR Code</p>
                     </div>
 
                     <a id="downloadBtn" class="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition shadow-lg cursor-pointer">Download</a>
@@ -170,12 +170,12 @@
                 optQr: 'Secure Transfer: WebRTC QR',
                 exec: 'Execute Task',
                 scanBtn: '📷 Open Webcam Scanner',
-                flowTitle: 'How to use Secure Transfer:',
+                flowTitle: 'How to use Secure Transfer (Two-Way):',
                 flowList: [
-                    '1. Enter the same password used to create the QR.',
-                    '2. Click "Open Webcam Scanner" and allow camera access.',
-                    '3. Point camera at the QR code on the other device.',
-                    '4. Data will flow via WebRTC P2P Channel.'
+                    '1. Sender: Enter password & click "Execute Task".',
+                    '2. Receiver: Enter password, click "Scanner" & scan Sender\'s QR.',
+                    '3. Receiver: Device will generate an Answer QR.',
+                    '4. Sender: Click "Scan Answer" & scan the Receiver\'s QR to connect.'
                 ],
                 done: 'Success!',
                 wait: 'Processing locally...',
@@ -203,12 +203,12 @@
                 optQr: 'Transfer Aman: WebRTC QR',
                 exec: 'Proses Sekarang',
                 scanBtn: '📷 Buka Scanner Kamera',
-                flowTitle: 'Cara Menggunakan:',
+                flowTitle: 'Cara Transfer Aman (Dua Arah):',
                 flowList: [
-                    '1. Masukkan password yang sama dengan saat membuat QR.',
-                    '2. Klik "Buka Scanner Kamera" dan izinkan akses kamera.',
-                    '3. Arahkan kamera ke QR code di perangkat lain.',
-                    '4. Data mengalir via Jalur Privat WebRTC.'
+                    '1. Pengirim: Masukkan password & klik "Proses Sekarang".',
+                    '2. Penerima: Masukkan password, klik "Scanner" & scan QR Pengirim.',
+                    '3. Penerima: Perangkat otomatis memunculkan QR Answer.',
+                    '4. Pengirim: Klik "Scan Answer" & scan QR Penerima untuk connect.'
                 ],
                 done: 'Berhasil!',
                 wait: 'Memproses secara lokal...',
@@ -269,8 +269,15 @@
             if (v === 'encrypt' || v === 'decrypt' || v === 'qr-share') {
                 passField.classList.remove('hidden');
                 warnBox.classList.remove('hidden');
-                if(v === 'qr-share') { scannerBtn.classList.remove('hidden'); scannerSection.classList.remove('hidden'); }
-                else { scannerBtn.classList.add('hidden'); scannerSection.classList.add('hidden'); stopScanner(); }
+                if(v === 'qr-share') { 
+                    scannerBtn.classList.remove('hidden'); 
+                    scannerSection.classList.remove('hidden'); 
+                    scannerBtn.innerText = langData[currentLang].scanBtn;
+                } else { 
+                    scannerBtn.classList.add('hidden'); 
+                    scannerSection.classList.add('hidden'); 
+                    stopScanner(); 
+                }
             } else {
                 passField.classList.add('hidden'); warnBox.classList.add('hidden');
                 scannerBtn.classList.add('hidden'); scannerSection.classList.add('hidden');
@@ -308,7 +315,6 @@
         async function getCount() {
             const countEl = document.getElementById('visitorCount');
             try {
-                // CountAPI telah nonaktif, fallback ke Session Storage akan selalu tereksekusi dengan aman
                 const res = await fetch(`https://api.countapi.xyz/hit/marcel_slinkyfile_2026/visits`);
                 const data = await res.json();
                 countEl.innerText = data.value.toLocaleString();
@@ -320,21 +326,22 @@
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        // --- WEB RTC ENGINE ---
+        // --- WEB RTC ENGINE (FIXED) ---
         const statusMsg = document.getElementById('statusMsg');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
         const resultArea = document.getElementById('resultArea');
         const downloadBtn = document.getElementById('downloadBtn');
 
+        // Ditambahkan a=candidate agar WebRTC mengetahui IP address untuk dikoneksikan
         function limitSDP(sdp) {
             return sdp.split('\r\n').filter(line => {
                 return line.startsWith('v=') || line.startsWith('o=') || line.startsWith('s=') || 
                        line.startsWith('t=') || line.startsWith('m=') || line.startsWith('c=') || 
                        line.startsWith('a=rtpmap') || line.startsWith('a=fmtp') || 
-                       (line.startsWith('a=setup')) || (line.startsWith('a=mid')) ||
-                       (line.startsWith('a=fingerprint')) || (line.startsWith('a=ice-ufrag')) ||
-                       (line.startsWith('a=ice-pwd'));
+                       line.startsWith('a=setup') || line.startsWith('a=mid') ||
+                       line.startsWith('a=fingerprint') || line.startsWith('a=ice-ufrag') ||
+                       line.startsWith('a=ice-pwd') || line.startsWith('a=candidate');
             }).join('\n');
         }
 
@@ -364,36 +371,44 @@
                 const json = pako.inflate(atob(b64), { to: 'string' });
                 const signalData = JSON.parse(json);
                 
-                statusMsg.innerText = "Connecting P2P...";
                 resultArea.classList.remove('hidden');
                 
-                initWebRTC(false, { type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') });
-            } catch (e) { alert(langData[currentLang].decErr); }
+                if (signalData.t === 'answer') {
+                    // Pengirim membaca Answer QR Penerima
+                    statusMsg.innerText = "Finalizing Connection...";
+                    qrContainer.classList.add('hidden');
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') }));
+                } else if (signalData.t === 'offer') {
+                    // Penerima membaca Offer QR Pengirim
+                    statusMsg.innerText = "Generating Answer QR...";
+                    initWebRTC(false, { type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') });
+                }
+            } catch (e) { alert(langData[currentLang].decErr); console.error(e); }
         }
 
         function initWebRTC(isSource, remoteSignal = null) {
             const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
             peerConnection = new RTCPeerConnection(config);
 
+            // Dipindahkan keluar blok if agar kedua perangkat meng-generate QR setelah ICE terkumpul
+            peerConnection.onicecandidate = (event) => {
+                if (!event.candidate) { 
+                    generateQRCode(); 
+                }
+            };
+
             if (isSource) {
                 dataChannel = peerConnection.createDataChannel("fileTransfer", { ordered: true });
                 setupDataChannel();
                 peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
-                
-                peerConnection.onicecandidate = (event) => {
-                    if (!event.candidate) { 
-                        generateQRCode();
-                    }
-                };
             } else {
-                peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
-                    .then(() => peerConnection.createAnswer())
-                    .then(answer => peerConnection.setLocalDescription(answer));
-
                 peerConnection.ondatachannel = (event) => {
                     dataChannel = event.channel;
                     setupDataChannel();
                 };
+                peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
+                    .then(() => peerConnection.createAnswer())
+                    .then(answer => peerConnection.setLocalDescription(answer));
             }
         }
 
@@ -414,8 +429,18 @@
                     correctLevel: QRCode.CorrectLevel.L
                 });
                 qrContainer.classList.remove('hidden');
-                statusMsg.innerText = "QR Signal Ready!";
-            } catch(e) { statusMsg.innerText = "Error generating QR"; }
+                
+                if (peerConnection.localDescription.type === 'offer') {
+                    statusMsg.innerText = currentLang === 'en' ? "Offer QR Ready! Scan with Receiver." : "QR Offer Siap! Scan di Penerima.";
+                    // Munculkan scanner agar Pengirim bisa scan Answer dari Penerima nanti
+                    const scanBtn = document.getElementById('scannerBtn');
+                    scanBtn.classList.remove('hidden');
+                    scanBtn.innerText = currentLang === 'en' ? "📷 Scan Receiver's Answer QR" : "📷 Scan QR Answer Penerima";
+                } else {
+                    statusMsg.innerText = currentLang === 'en' ? "Answer QR Ready! Scan back on Sender." : "QR Answer Siap! Scan di Pengirim.";
+                    document.getElementById('scannerBtn').classList.add('hidden');
+                }
+            } catch(e) { statusMsg.innerText = "Error generating QR: " + e.message; }
         }
 
         function setupDataChannel() {
@@ -481,7 +506,6 @@
                     const imgs = selectedFiles.filter(f => f.type.startsWith('image/'));
                     const opt = action === 'compress-img' ? { maxSizeMB: 1 } : { preserveExif: false };
                     
-                    // Fallback pemanggilan fungsi sesuai dengan nama export default pada browserImageCompression
                     const imageCompressor = window.browserImageCompression || window.imageCompression;
                     
                     for (const f of imgs) {
