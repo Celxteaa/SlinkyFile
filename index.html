@@ -30,7 +30,8 @@
         .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        #qrcode img { margin: 0 auto; border: 8px solid white; border-radius: 12px; max-width: 100%; }
+        #qrcode { display: flex; justify-content: center; align-items: center; padding: 10px; background: white; border-radius: 12px; }
+        #qrcode img { max-width: 100%; height: auto; border: 4px solid white; }
         #reader { border: none !important; }
         #reader video { border-radius: 20px; object-fit: cover; }
     </style>
@@ -99,9 +100,15 @@
                             Execute Task
                         </button>
 
-                        <button id="scannerBtn" class="hidden w-full bg-slate-800 text-white font-bold py-3 rounded-2xl hover:bg-slate-700 transition-all text-xs uppercase tracking-widest">
-                            📷 Open Webcam Scanner
-                        </button>
+                        <div id="scannerOptions" class="hidden grid grid-cols-2 gap-2 animate-in">
+                            <button id="scannerBtn" class="bg-slate-800 text-white font-bold py-3 rounded-2xl hover:bg-slate-700 transition-all text-[10px] uppercase tracking-tighter">
+                                📷 Camera
+                            </button>
+                            <label class="bg-slate-200 text-slate-700 font-bold py-3 rounded-2xl hover:bg-slate-300 transition-all text-[10px] uppercase tracking-tighter text-center cursor-pointer">
+                                🖼️ Upload QR
+                                <input type="file" id="qrUpload" class="hidden" accept="image/*">
+                            </label>
+                        </div>
 
                         <div id="warningBox" class="hidden bg-red-50 border border-red-100 p-4 rounded-2xl animate-in">
                             <div class="flex items-start space-x-3">
@@ -136,7 +143,7 @@
                     </div>
                     
                     <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[300px]">
-                        <div id="qrcode" class="flex justify-center"></div>
+                        <div id="qrcode"></div>
                         <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">P2P Signal QR Code</p>
                     </div>
 
@@ -169,7 +176,7 @@
                 optDecrypt: 'Unlock: Decrypt (.locked) File',
                 optQr: 'Secure Transfer: WebRTC QR',
                 exec: 'Execute Task',
-                scanBtn: '📷 Open Webcam Scanner',
+                scanBtn: '📷 Camera',
                 flowTitle: 'How to use Secure Transfer (Two-Way):',
                 flowList: [
                     '1. Sender: Enter password & click "Execute Task".',
@@ -202,7 +209,7 @@
                 optDecrypt: 'Buka: Dekripsi File (.locked)',
                 optQr: 'Transfer Aman: WebRTC QR',
                 exec: 'Proses Sekarang',
-                scanBtn: '📷 Buka Scanner Kamera',
+                scanBtn: '📷 Kamera',
                 flowTitle: 'Cara Transfer Aman (Dua Arah):',
                 flowList: [
                     '1. Pengirim: Masukkan password & klik "Proses Sekarang".',
@@ -263,24 +270,23 @@
         document.getElementById('actionType').addEventListener('change', (e) => {
             const passField = document.getElementById('passwordField');
             const warnBox = document.getElementById('warningBox');
-            const scannerBtn = document.getElementById('scannerBtn');
+            const scannerOptions = document.getElementById('scannerOptions');
             const scannerSection = document.getElementById('scannerSection');
             const v = e.target.value;
             if (v === 'encrypt' || v === 'decrypt' || v === 'qr-share') {
                 passField.classList.remove('hidden');
                 warnBox.classList.remove('hidden');
                 if(v === 'qr-share') { 
-                    scannerBtn.classList.remove('hidden'); 
+                    scannerOptions.classList.remove('hidden'); 
                     scannerSection.classList.remove('hidden'); 
-                    scannerBtn.innerText = langData[currentLang].scanBtn;
                 } else { 
-                    scannerBtn.classList.add('hidden'); 
+                    scannerOptions.classList.add('hidden'); 
                     scannerSection.classList.add('hidden'); 
                     stopScanner(); 
                 }
             } else {
                 passField.classList.add('hidden'); warnBox.classList.add('hidden');
-                scannerBtn.classList.add('hidden'); scannerSection.classList.add('hidden');
+                scannerOptions.classList.add('hidden'); scannerSection.classList.add('hidden');
                 stopScanner();
             }
         });
@@ -311,7 +317,6 @@
             document.getElementById('warningText').innerText = d.warning;
         }
 
-        // VISITOR COUNT
         async function getCount() {
             const countEl = document.getElementById('visitorCount');
             try {
@@ -326,14 +331,12 @@
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        // --- WEB RTC ENGINE (RE-BUILT FOR COMPACT QR) ---
         const statusMsg = document.getElementById('statusMsg');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
         const resultArea = document.getElementById('resultArea');
         const downloadBtn = document.getElementById('downloadBtn');
 
-        // Kompresi SDP ekstrem agar muat di QR
         function compressSDP(sdp) {
             return sdp.split('\r\n').filter(line => {
                 return line.startsWith('a=fingerprint') || line.startsWith('a=ice-ufrag') ||
@@ -353,17 +356,25 @@
             html5QrCode = new Html5Qrcode("reader");
             html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScanSuccess)
             .catch(e => alert("Camera error. Use HTTPS."));
-            document.getElementById('scannerBtn').classList.add('hidden');
         }
 
         function stopScanner() {
             if (html5QrCode) {
                 html5QrCode.stop().then(() => {
                     document.getElementById('reader').innerHTML = '';
-                    document.getElementById('scannerBtn').classList.remove('hidden');
                 }).catch(e => console.log(e));
             }
         }
+
+        // FEATURE: Scan from Image
+        document.getElementById('qrUpload').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const scanner = new Html5Qrcode("reader");
+            scanner.scanFile(file, true)
+                .then(decodedText => onScanSuccess(decodedText))
+                .catch(err => alert("Could not find QR Code in image."));
+        });
 
         async function onScanSuccess(decodedText) {
             stopScanner();
@@ -373,6 +384,7 @@
                 const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
                 
                 resultArea.classList.remove('hidden');
+                downloadBtn.classList.add('hidden'); // Sembunyikan download saat WebRTC
                 const fullSDP = decompressSDP(signalData.s, signalData.t);
 
                 if (signalData.t === 'offer') {
@@ -409,7 +421,7 @@
                     const encrypted = CryptoJS.AES.encrypt(signal, password).toString();
                     
                     qrcodeDiv.innerHTML = '';
-                    new QRCode(qrcodeDiv, { text: encrypted, width: 280, height: 280 });
+                    new QRCode(qrcodeDiv, { text: encrypted, width: 250, height: 250 });
                     qrContainer.classList.remove('hidden');
                     statusMsg.innerText = isSource ? "Scan Offer QR on Receiver" : "Scan Answer QR back on Sender";
                 }
@@ -433,7 +445,6 @@
             };
         }
 
-        // MAIN PROCESSOR
         document.getElementById('processBtn').addEventListener('click', async () => {
             const action = document.getElementById('actionType').value;
             const password = document.getElementById('aesPass').value;
