@@ -16,13 +16,23 @@
         .gradient-bg { background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); }
         .glass-nav { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); }
         #visitorCount { transition: all 0.5s ease-in-out; }
-        .file-list-scroll::-webkit-scrollbar { width: 4px; }
-        .file-list-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        
+        /* Konsistensi tampilan file list */
+        .file-list-scroll { 
+            max-height: 250px; 
+            overflow-y: auto; 
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+        .file-list-scroll::-webkit-scrollbar { width: 5px; }
+        .file-list-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
         .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        #qrcode img { margin: 0 auto; border: 8px solid white; border-radius: 12px; }
+        
+        #qrcode img { margin: 0 auto; border: 8px solid white; border-radius: 12px; max-width: 100%; }
         #reader { border: none !important; }
-        #reader video { border-radius: 20px; }
+        #reader video { border-radius: 20px; object-fit: cover; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans transition-all">
@@ -55,7 +65,7 @@
 
         <div class="bg-white rounded-[2.5rem] shadow-2xl shadow-blue-200/20 p-8 md:p-12 border border-slate-100 mb-8">
             <div class="grid md:grid-cols-2 gap-10">
-                <div>
+                <div class="overflow-hidden">
                     <label id="label-step1" class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3 block">Step 1: Choose Files</label>
                     <div class="border-2 border-dashed border-slate-200 rounded-3xl p-10 text-center hover:border-blue-400 transition-all bg-slate-50/50 relative overflow-hidden group mb-4">
                         <input type="file" id="fileInput" class="absolute inset-0 opacity-0 cursor-pointer" multiple>
@@ -65,7 +75,7 @@
                     
                     <div id="filePreviewContainer" class="hidden">
                         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-2" id="selectedLabel">Selected Files:</p>
-                        <ul id="fileList" class="space-y-2 max-h-60 overflow-y-auto file-list-scroll pr-2"></ul>
+                        <ul id="fileList" class="space-y-2 file-list-scroll pr-2"></ul>
                     </div>
                 </div>
 
@@ -125,8 +135,8 @@
                         <p id="sizeMsg" class="text-slate-400 text-sm mt-1"></p>
                     </div>
                     
-                    <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl">
-                        <div id="qrcode"></div>
+                    <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl w-full max-w-[300px]">
+                        <div id="qrcode" class="flex justify-center"></div>
                         <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">Scan with receiver device</p>
                     </div>
 
@@ -219,7 +229,6 @@
         let peerConnection = null;
         let dataChannel = null;
 
-        // UI ACTIONS
         function renderFileList() {
             const fileList = document.getElementById('fileList');
             const filePreviewContainer = document.getElementById('filePreviewContainer');
@@ -228,8 +237,16 @@
                 filePreviewContainer.classList.remove('hidden');
                 selectedFiles.forEach((file, index) => {
                     const li = document.createElement('li');
-                    li.className = "flex items-center justify-between bg-slate-100/50 p-3 rounded-xl border border-slate-100 animate-in";
-                    li.innerHTML = `<div class="flex items-center space-x-3 truncate"><span class="text-lg">${file.type.includes('image') ? '🖼️' : '📄'}</span><span class="text-xs font-bold text-slate-600 truncate">${file.name}</span></div><div class="flex items-center space-x-2"><span class="text-[10px] font-black text-slate-400 bg-white px-2 py-1 rounded-md shadow-sm">${(file.size / 1024).toFixed(1)} KB</span><button onclick="removeFile(${index})" class="text-red-400 hover:text-red-600 font-bold p-1">✕</button></div>`;
+                    li.className = "flex items-center justify-between bg-slate-100/50 p-3 rounded-xl border border-slate-100 animate-in gap-3";
+                    li.innerHTML = `
+                        <div class="flex items-center space-x-3 min-w-0 overflow-hidden">
+                            <span class="flex-shrink-0 text-lg">${file.type.includes('image') ? '🖼️' : '📄'}</span>
+                            <span class="text-xs font-bold text-slate-600 truncate block">${file.name}</span>
+                        </div>
+                        <div class="flex items-center space-x-2 flex-shrink-0">
+                            <span class="text-[10px] font-black text-slate-400 bg-white px-2 py-1 rounded-md shadow-sm whitespace-nowrap">${(file.size / 1024).toFixed(1)} KB</span>
+                            <button onclick="removeFile(${index})" class="text-red-400 hover:text-red-600 font-bold p-1">✕</button>
+                        </div>`;
                     fileList.appendChild(li);
                 });
             } else { filePreviewContainer.classList.add('hidden'); }
@@ -287,6 +304,7 @@
             document.getElementById('warningText').innerText = d.warning;
         }
 
+        // VISITOR COUNT
         async function getCount() {
             const countEl = document.getElementById('visitorCount');
             try {
@@ -301,41 +319,26 @@
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        // WEB RTC & QR LOGIC
-        const processBtn = document.getElementById('processBtn');
-        const resultArea = document.getElementById('resultArea');
+        // WEB RTC ENGINE
         const statusMsg = document.getElementById('statusMsg');
-        const downloadBtn = document.getElementById('downloadBtn');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
-        const scannerBtn = document.getElementById('scannerBtn');
-
-        const fileToBase64 = (file) => new Promise((r, j) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => r(reader.result);
-            reader.onerror = e => j(e);
-        });
-
-        // SCANNER
-        scannerBtn.addEventListener('click', () => {
-            if(!document.getElementById('aesPass').value) return alert(langData[currentLang].passErr);
-            startScanner();
-        });
+        const resultArea = document.getElementById('resultArea');
+        const downloadBtn = document.getElementById('downloadBtn');
 
         function startScanner() {
             document.getElementById('reader').innerHTML = '';
             html5QrCode = new Html5Qrcode("reader");
             html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScanSuccess)
             .catch(e => alert("Camera error. Use HTTPS."));
-            scannerBtn.classList.add('hidden');
+            document.getElementById('scannerBtn').classList.add('hidden');
         }
 
         function stopScanner() {
             if (html5QrCode) {
                 html5QrCode.stop().then(() => {
                     document.getElementById('reader').innerHTML = '';
-                    scannerBtn.classList.remove('hidden');
+                    document.getElementById('scannerBtn').classList.remove('hidden');
                 }).catch(e => console.log(e));
             }
         }
@@ -346,15 +349,12 @@
             try {
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
                 const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
-                
                 statusMsg.innerText = "Connecting P2P...";
                 resultArea.classList.remove('hidden');
-                
                 initWebRTC(false, signalData);
             } catch (e) { alert(langData[currentLang].decErr); }
         }
 
-        // CORE WEBRTC ENGINE (FIXED & OPTIMIZED)
         function initWebRTC(isSource, remoteSignal = null) {
             const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
             peerConnection = new RTCPeerConnection(config);
@@ -362,20 +362,24 @@
             if (isSource) {
                 dataChannel = peerConnection.createDataChannel("fileTransfer", { ordered: true });
                 setupDataChannel();
-                
                 peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
                 
-                // Menunggu proses pengumpulan ICE candidate selesai
-                peerConnection.onicegatheringstatechange = () => {
-                    if (peerConnection.iceGatheringState === "complete") {
+                peerConnection.onicecandidate = (event) => {
+                    if (!event.candidate) { // Gathering complete
                         generateQRCode();
                     }
                 };
             } else {
+                peerConnection.onicecandidate = (event) => {
+                    if (!event.candidate && peerConnection.localDescription) {
+                        // Normally you'd send this back, but for 1-way QR we assume the source is waiting
+                        console.log("Answer Ready");
+                    }
+                };
+                
                 peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
                     .then(() => peerConnection.createAnswer())
-                    .then(answer => peerConnection.setLocalDescription(answer))
-                    .catch(e => console.error(e));
+                    .then(answer => peerConnection.setLocalDescription(answer));
 
                 peerConnection.ondatachannel = (event) => {
                     dataChannel = event.channel;
@@ -386,9 +390,7 @@
 
         function generateQRCode() {
             const password = document.getElementById('aesPass').value;
-            // Kita hanya mengirim SDP esensial untuk menghemat ruang QR
             const signal = JSON.stringify(peerConnection.localDescription);
-            
             try {
                 const encryptedSignal = CryptoJS.AES.encrypt(signal, password).toString();
                 qrcodeDiv.innerHTML = '';
@@ -396,14 +398,11 @@
                     text: encryptedSignal, 
                     width: 256, 
                     height: 256,
-                    correctLevel: QRCode.CorrectLevel.L // Low error correction agar muat banyak data
+                    correctLevel: QRCode.CorrectLevel.L 
                 });
                 qrContainer.classList.remove('hidden');
                 statusMsg.innerText = "QR Signal Ready!";
-            } catch(e) {
-                statusMsg.innerText = "Error: Data too large for QR";
-                console.error(e);
-            }
+            } catch(e) { statusMsg.innerText = "Error: Too much data for QR"; }
         }
 
         function setupDataChannel() {
@@ -411,12 +410,11 @@
                 statusMsg.innerText = "Connected! Transferring...";
                 if (selectedFiles.length > 0) {
                     const file = selectedFiles[0];
-                    const base64 = await fileToBase64(file);
-                    // Kirim data dalam bentuk JSON
-                    dataChannel.send(JSON.stringify({ name: file.name, data: base64 }));
+                    const reader = new FileReader();
+                    reader.readAsDataURL(file);
+                    reader.onload = () => dataChannel.send(JSON.stringify({ name: file.name, data: reader.result }));
                 }
             };
-            
             dataChannel.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
                 const link = document.createElement('a');
@@ -428,10 +426,9 @@
         }
 
         // MAIN PROCESSOR
-        processBtn.addEventListener('click', async () => {
+        document.getElementById('processBtn').addEventListener('click', async () => {
             const action = document.getElementById('actionType').value;
             const password = document.getElementById('aesPass').value;
-            
             if (selectedFiles.length === 0) return alert(langData[currentLang].alert);
             if ((action.includes('encrypt') || action === 'qr-share') && !password) return alert(langData[currentLang].passErr);
 
@@ -444,22 +441,21 @@
                 const zip = new JSZip();
                 if (action === 'qr-share') {
                     initWebRTC(true);
-                } 
-                else if (action === 'zip') {
+                } else if (action === 'zip') {
                     selectedFiles.forEach(f => zip.file(f.name, f));
                     const content = await zip.generateAsync({type: "blob"});
                     setupDownload(content, "SlinkyFile_Archive.zip");
-                }
-                else if (action === 'encrypt') {
+                } else if (action === 'encrypt') {
                     for (const f of selectedFiles) {
-                        const b64 = await fileToBase64(f);
+                        const b64 = await new Promise(r => {
+                            const rd = new FileReader(); rd.readAsDataURL(f); rd.onload = () => r(rd.result);
+                        });
                         const enc = CryptoJS.AES.encrypt(b64, password).toString();
                         zip.file(f.name + ".locked", enc);
                     }
                     const content = await zip.generateAsync({type: "blob"});
                     setupDownload(content, "SlinkyFile_Locked.zip");
-                }
-                else if (action === 'decrypt') {
+                } else if (action === 'decrypt') {
                     for (const f of selectedFiles) {
                         const txt = await f.text();
                         const dec = CryptoJS.AES.decrypt(txt, password).toString(CryptoJS.enc.Utf8);
@@ -468,8 +464,7 @@
                     }
                     const content = await zip.generateAsync({type: "blob"});
                     setupDownload(content, "SlinkyFile_Unlocked.zip");
-                }
-                else if (action === 'compress-img' || action === 'remove-exif') {
+                } else if (action === 'compress-img' || action === 'remove-exif') {
                     const imgs = selectedFiles.filter(f => f.type.startsWith('image/'));
                     const opt = action === 'compress-img' ? { maxSizeMB: 1 } : { preserveExif: false };
                     for (const f of imgs) {
@@ -479,10 +474,7 @@
                     const content = await zip.generateAsync({type: "blob"});
                     setupDownload(content, "SlinkyFile_Images.zip");
                 }
-            } catch (e) { 
-                console.error(e);
-                statusMsg.innerText = "Error!"; 
-            }
+            } catch (e) { statusMsg.innerText = "Error!"; }
         });
 
         function setupDownload(blob, filename) {
@@ -493,6 +485,11 @@
             downloadBtn.innerText = currentLang === 'en' ? 'Download Now' : 'Unduh Sekarang';
             downloadBtn.classList.remove('hidden');
         }
+
+        document.getElementById('scannerBtn').addEventListener('click', () => {
+            if(!document.getElementById('aesPass').value) return alert(langData[currentLang].passErr);
+            startScanner();
+        });
     </script>
 </body>
 </html>
