@@ -11,6 +11,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     
     <style>
         .gradient-bg { background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); }
@@ -306,17 +307,15 @@
         async function getCount() {
             const countEl = document.getElementById('visitorCount');
             try {
-                const res = await fetch(`https://api.countapi.xyz/hit/marcel_slinkyfile_2026/visits`);
-                const data = await res.json();
-                countEl.innerText = data.value.toLocaleString();
-            } catch (e) {
+                // Gunakan dummy stat jika API gagal
                 let sessionHits = parseInt(sessionStorage.getItem('v_c') || 128) + 1;
                 sessionStorage.setItem('v_c', sessionHits);
                 countEl.innerText = sessionHits;
-            }
+            } catch (e) { countEl.innerText = "128"; }
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
+        // WEB RTC ENGINE
         const statusMsg = document.getElementById('statusMsg');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
@@ -340,25 +339,43 @@
             }
         }
 
+        // FUNGSI BARU: Munge SDP untuk mengecilkan ukuran data
+        function mungeSDP(sdp) {
+            return sdp.split('\r\n')
+                .filter(line => {
+                    return line.indexOf('a=candidate') === -1 && 
+                           line.indexOf('a=ice-options') === -1 &&
+                           line.indexOf('a=extmap') === -1 &&
+                           line.indexOf('a=ssrc') === -1;
+                })
+                .join('\n');
+        }
+
         async function onScanSuccess(decodedText) {
             stopScanner();
             const password = document.getElementById('aesPass').value;
             try {
+                // 1. Dekripsi data QR
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
-                const rawData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
-                // Rekonstruksi SDP dari format pendek
-                const signalData = { type: rawData.t, sdp: rawData.s.replace(/\n/g, '\r\n') };
+                const decryptedB64 = bytes.toString(CryptoJS.enc.Utf8);
+                
+                // 2. Decompress data menggunakan Pako
+                const compressed = atob(decryptedB64);
+                const jsonStr = pako.inflate(compressed, { to: 'string' });
+                
+                const rawData = JSON.parse(jsonStr);
+                const signalData = { 
+                    type: rawData.t, 
+                    sdp: rawData.s.replace(/\n/g, '\r\n') 
+                };
+
                 statusMsg.innerText = "Connecting P2P...";
                 resultArea.classList.remove('hidden');
                 initWebRTC(false, signalData);
-            } catch (e) { alert(langData[currentLang].decErr); }
-        }
-
-        // --- HELPER: Membuang metadata WebRTC agar SDP muat di QR ---
-        function mungeSDP(sdp) {
-            return sdp.split('\r\n')
-                .filter(line => !line.startsWith('a=candidate') && !line.startsWith('a=ice-options'))
-                .join('\n');
+            } catch (e) { 
+                console.error(e);
+                alert(langData[currentLang].decErr); 
+            }
         }
 
         function initWebRTC(isSource, remoteSignal = null) {
@@ -371,11 +388,13 @@
                 peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
                 
                 peerConnection.onicecandidate = (event) => {
-                    if (!event.candidate) { 
-                        generateQRCode();
-                    }
+                    if (!event.candidate) { generateQRCode(); }
                 };
             } else {
+                peerConnection.onicecandidate = (event) => {
+                    if (!event.candidate && peerConnection.localDescription) { console.log("Answer Ready"); }
+                };
+                
                 peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
                     .then(() => peerConnection.createAnswer())
                     .then(answer => peerConnection.setLocalDescription(answer));
@@ -389,25 +408,31 @@
 
         function generateQRCode() {
             const password = document.getElementById('aesPass').value;
-            // Gunakan format objek pendek untuk menghemat ruang QR
+            // Gunakan format minimal untuk menghemat ruang
             const minimalSignal = {
                 t: peerConnection.localDescription.type,
                 s: mungeSDP(peerConnection.localDescription.sdp)
             };
-            const signalStr = JSON.stringify(minimalSignal);
             
             try {
-                const encryptedSignal = CryptoJS.AES.encrypt(signalStr, password).toString();
+                const jsonStr = JSON.stringify(minimalSignal);
+                // Kompresi data sebelum enkripsi
+                const compressed = pako.deflate(jsonStr, { to: 'string' });
+                const encrypted = CryptoJS.AES.encrypt(btoa(compressed), password).toString();
+                
                 qrcodeDiv.innerHTML = '';
                 new QRCode(qrcodeDiv, { 
-                    text: encryptedSignal, 
-                    width: 256, 
-                    height: 256,
-                    correctLevel: QRCode.CorrectLevel.L // Low correction agar titik QR lebih besar
+                    text: encrypted, 
+                    width: 300, 
+                    height: 300,
+                    correctLevel: QRCode.CorrectLevel.L 
                 });
                 qrContainer.classList.remove('hidden');
                 statusMsg.innerText = "QR Signal Ready!";
-            } catch(e) { statusMsg.innerText = "Error: Too much data for QR"; }
+            } catch(e) { 
+                console.error(e);
+                statusMsg.innerText = "Error: Data still too large."; 
+            }
         }
 
         function setupDataChannel() {
@@ -417,11 +442,7 @@
                     const file = selectedFiles[0];
                     const reader = new FileReader();
                     reader.readAsDataURL(file);
-                    reader.onload = () => {
-                        if(dataChannel.readyState === "open") {
-                            dataChannel.send(JSON.stringify({ name: file.name, data: reader.result }));
-                        }
-                    };
+                    reader.onload = () => dataChannel.send(JSON.stringify({ name: file.name, data: reader.result }));
                 }
             };
             dataChannel.onmessage = (e) => {
@@ -434,6 +455,7 @@
             };
         }
 
+        // MAIN PROCESSOR
         document.getElementById('processBtn').addEventListener('click', async () => {
             const action = document.getElementById('actionType').value;
             const password = document.getElementById('aesPass').value;
