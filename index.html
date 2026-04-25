@@ -304,23 +304,39 @@
             document.getElementById('warningText').innerText = d.warning;
         }
 
+        // VISITOR COUNT
         async function getCount() {
             const countEl = document.getElementById('visitorCount');
             try {
-                // Gunakan dummy stat jika API gagal
+                const res = await fetch(`https://api.countapi.xyz/hit/marcel_slinkyfile_2026/visits`);
+                const data = await res.json();
+                countEl.innerText = data.value.toLocaleString();
+            } catch (e) {
                 let sessionHits = parseInt(sessionStorage.getItem('v_c') || 128) + 1;
                 sessionStorage.setItem('v_c', sessionHits);
                 countEl.innerText = sessionHits;
-            } catch (e) { countEl.innerText = "128"; }
+            }
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        // WEB RTC ENGINE
+        // --- WEB RTC ENGINE (FIXED FOR SMALL QR) ---
         const statusMsg = document.getElementById('statusMsg');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
         const resultArea = document.getElementById('resultArea');
         const downloadBtn = document.getElementById('downloadBtn');
+
+        // Fungsi pemangkas SDP agar QR kecil
+        function limitSDP(sdp) {
+            return sdp.split('\r\n').filter(line => {
+                return line.startsWith('v=') || line.startsWith('o=') || line.startsWith('s=') || 
+                       line.startsWith('t=') || line.startsWith('m=') || line.startsWith('c=') || 
+                       line.startsWith('a=rtpmap') || line.startsWith('a=fmtp') || 
+                       (line.startsWith('a=setup')) || (line.startsWith('a=mid')) ||
+                       (line.startsWith('a=fingerprint')) || (line.startsWith('a=ice-ufrag')) ||
+                       (line.startsWith('a=ice-pwd'));
+            }).join('\n');
+        }
 
         function startScanner() {
             document.getElementById('reader').innerHTML = '';
@@ -339,43 +355,22 @@
             }
         }
 
-        // FUNGSI BARU: Munge SDP untuk mengecilkan ukuran data
-        function mungeSDP(sdp) {
-            return sdp.split('\r\n')
-                .filter(line => {
-                    return line.indexOf('a=candidate') === -1 && 
-                           line.indexOf('a=ice-options') === -1 &&
-                           line.indexOf('a=extmap') === -1 &&
-                           line.indexOf('a=ssrc') === -1;
-                })
-                .join('\n');
-        }
-
         async function onScanSuccess(decodedText) {
             stopScanner();
             const password = document.getElementById('aesPass').value;
             try {
-                // 1. Dekripsi data QR
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
-                const decryptedB64 = bytes.toString(CryptoJS.enc.Utf8);
+                const b64 = bytes.toString(CryptoJS.enc.Utf8);
+                // Inflate data yang dikompres pako
+                const json = pako.inflate(atob(b64), { to: 'string' });
+                const signalData = JSON.parse(json);
                 
-                // 2. Decompress data menggunakan Pako
-                const compressed = atob(decryptedB64);
-                const jsonStr = pako.inflate(compressed, { to: 'string' });
-                
-                const rawData = JSON.parse(jsonStr);
-                const signalData = { 
-                    type: rawData.t, 
-                    sdp: rawData.s.replace(/\n/g, '\r\n') 
-                };
-
                 statusMsg.innerText = "Connecting P2P...";
                 resultArea.classList.remove('hidden');
-                initWebRTC(false, signalData);
-            } catch (e) { 
-                console.error(e);
-                alert(langData[currentLang].decErr); 
-            }
+                
+                // Kembalikan format baris SDP
+                initWebRTC(false, { type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') });
+            } catch (e) { alert(langData[currentLang].decErr); }
         }
 
         function initWebRTC(isSource, remoteSignal = null) {
@@ -388,13 +383,11 @@
                 peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
                 
                 peerConnection.onicecandidate = (event) => {
-                    if (!event.candidate) { generateQRCode(); }
+                    if (!event.candidate) { 
+                        generateQRCode();
+                    }
                 };
             } else {
-                peerConnection.onicecandidate = (event) => {
-                    if (!event.candidate && peerConnection.localDescription) { console.log("Answer Ready"); }
-                };
-                
                 peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
                     .then(() => peerConnection.createAnswer())
                     .then(answer => peerConnection.setLocalDescription(answer));
@@ -408,31 +401,25 @@
 
         function generateQRCode() {
             const password = document.getElementById('aesPass').value;
-            // Gunakan format minimal untuk menghemat ruang
-            const minimalSignal = {
-                t: peerConnection.localDescription.type,
-                s: mungeSDP(peerConnection.localDescription.sdp)
-            };
+            // Gunakan limitSDP untuk memangkas data
+            const smallSDP = limitSDP(peerConnection.localDescription.sdp);
+            const signalObj = { t: peerConnection.localDescription.type, s: smallSDP };
             
             try {
-                const jsonStr = JSON.stringify(minimalSignal);
-                // Kompresi data sebelum enkripsi
-                const compressed = pako.deflate(jsonStr, { to: 'string' });
-                const encrypted = CryptoJS.AES.encrypt(btoa(compressed), password).toString();
+                // Kompres dengan pako lalu enkripsi
+                const compressed = pako.deflate(JSON.stringify(signalObj), { to: 'string' });
+                const encryptedSignal = CryptoJS.AES.encrypt(btoa(compressed), password).toString();
                 
                 qrcodeDiv.innerHTML = '';
                 new QRCode(qrcodeDiv, { 
-                    text: encrypted, 
-                    width: 300, 
-                    height: 300,
-                    correctLevel: QRCode.CorrectLevel.L 
+                    text: encryptedSignal, 
+                    width: 280, 
+                    height: 280,
+                    correctLevel: QRCode.CorrectLevel.L // Low error correction = bigger pixel squares
                 });
                 qrContainer.classList.remove('hidden');
                 statusMsg.innerText = "QR Signal Ready!";
-            } catch(e) { 
-                console.error(e);
-                statusMsg.innerText = "Error: Data still too large."; 
-            }
+            } catch(e) { statusMsg.innerText = "Error generating QR"; }
         }
 
         function setupDataChannel() {
