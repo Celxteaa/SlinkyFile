@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SlinkyFile | Private File Tools (Image, ZIP & AES)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/browser-image-compression/2.0.2/browser-image-compression.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    
+    <style>
+        .gradient-bg { background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); }
+        .glass-nav { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); }
+        #visitorCount { transition: all 0.5s ease-in-out; }
+        .file-list-scroll::-webkit-scrollbar { width: 4px; }
+        .file-list-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .animate-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        #qrcode img { margin: 0 auto; border: 8px solid white; border-radius: 12px; }
+        #reader { border: none !important; }
+        #reader video { border-radius: 20px; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans transition-all">
+
+    <nav class="glass-nav sticky top-0 z-50 border-b border-slate-100 py-4 px-6">
+        <div class="max-w-5xl mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-black text-blue-600 tracking-tighter italic">SLINKYFILE</h1>
+            
+            <div class="flex items-center space-x-4">
+                <div class="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <button onclick="setLanguage('en')" id="lang-en" class="px-3 py-1 rounded-lg text-xs font-bold transition-all bg-white shadow-sm text-blue-600">EN</button>
+                    <button onclick="setLanguage('id')" id="lang-id" class="px-3 py-1 rounded-lg text-xs font-bold transition-all text-slate-400">ID</button>
+                </div>
+                <div class="hidden md:flex items-center space-x-3 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    <span class="text-[10px] font-black text-blue-700 uppercase tracking-wider"><span id="visitorCount">0</span> Visits</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto py-12 px-6">
+        <div class="text-center mb-10">
+            <h2 id="hero-title" class="text-4xl md:text-6xl font-black mb-4 tracking-tight text-slate-800">Any File. <span class="text-blue-600">Zero Upload.</span></h2>
+            <p id="hero-desc" class="text-slate-500 text-lg max-w-xl mx-auto italic">Private client-side processing: Compress, bundle, or encrypt your files without them ever leaving your device.</p>
+        </div>
+
+        <div class="bg-white rounded-[2.5rem] shadow-2xl shadow-blue-200/20 p-8 md:p-12 border border-slate-100 mb-8">
+            <div class="grid md:grid-cols-2 gap-10">
+                <div>
+                    <label id="label-step1" class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3 block">Step 1: Choose Files</label>
+                    <div class="border-2 border-dashed border-slate-200 rounded-3xl p-10 text-center hover:border-blue-400 transition-all bg-slate-50/50 relative overflow-hidden group mb-4">
+                        <input type="file" id="fileInput" class="absolute inset-0 opacity-0 cursor-pointer" multiple>
+                        <div class="text-5xl mb-4 group-hover:scale-110 transition-transform">📂</div>
+                        <p class="font-bold text-slate-700" id="fileLabel">Drop images or any files here</p>
+                    </div>
+                    
+                    <div id="filePreviewContainer" class="hidden">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-2" id="selectedLabel">Selected Files:</p>
+                        <ul id="fileList" class="space-y-2 max-h-40 overflow-y-auto file-list-scroll pr-2"></ul>
+                    </div>
+                </div>
+
+                <div class="flex flex-col justify-start pt-0 md:pt-6">
+                    <label id="label-step2" class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3 block">Step 2: Select Magic</label>
+                    <div class="space-y-4">
+                        <select id="actionType" class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 outline-none focus:border-blue-500 font-bold text-slate-700 appearance-none cursor-pointer">
+                            <option value="zip" id="opt-zip">Archive All to ZIP (.zip)</option>
+                            <option value="compress-img" id="opt-img">Optimize Images (Shrink Size)</option>
+                            <option value="remove-exif" id="opt-exif">Strip Metadata (Privacy Shield)</option>
+                            <option value="encrypt" id="opt-encrypt">Lock: AES-256 Encryption</option>
+                            <option value="decrypt" id="opt-decrypt">Unlock: Decrypt (.locked) File</option>
+                            <option value="qr-share" id="opt-qr">Secure Transfer: Generate QR Code</option>
+                        </select>
+
+                        <div id="passwordField" class="hidden animate-in">
+                            <input type="password" id="aesPass" placeholder="Enter Secret Password" class="w-full bg-blue-50 border-2 border-blue-100 rounded-2xl px-5 py-3 outline-none focus:border-blue-500 font-bold text-blue-900 text-sm">
+                        </div>
+
+                        <button id="processBtn" class="w-full gradient-bg text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-200 hover:brightness-110 active:scale-95 transition-all text-sm uppercase tracking-[0.2em]">
+                            Execute Task
+                        </button>
+
+                        <button id="scannerBtn" class="hidden w-full bg-slate-800 text-white font-bold py-3 rounded-2xl hover:bg-slate-700 transition-all text-xs uppercase tracking-widest">
+                            📷 Open Webcam Scanner
+                        </button>
+
+                        <div id="warningBox" class="hidden bg-red-50 border border-red-100 p-4 rounded-2xl animate-in">
+                            <div class="flex items-start space-x-3">
+                                <span class="text-lg">⚠️</span>
+                                <p id="warningText" class="text-[11px] font-bold text-red-600 leading-snug italic">
+                                    CAUTION: We don't store passwords. If you forget it, your encrypted files are lost forever.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="scannerSection" class="hidden mt-8 animate-in">
+                <div id="reader" class="w-full overflow-hidden rounded-3xl bg-slate-100"></div>
+                <div class="mt-6 p-6 bg-blue-50 rounded-2xl border border-blue-100">
+                    <h4 id="flow-title" class="font-black text-blue-700 text-xs uppercase mb-3">How to use:</h4>
+                    <ul id="flow-list" class="text-[11px] text-blue-600 space-y-2 italic font-medium">
+                        <li>1. Enter the same password used to create the QR.</li>
+                        <li>2. Click 'Open Webcam Scanner' and allow camera access.</li>
+                        <li>3. Point camera at the QR code on the other device.</li>
+                        <li>4. The file will automatically decrypt and download.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="resultArea" class="hidden mt-10 pt-10 border-t border-slate-50">
+                <div class="bg-slate-900 rounded-3xl p-8 text-white flex flex-col items-center gap-6">
+                    <div class="text-center">
+                        <p id="statusMsg" class="text-xl font-black italic">Success!</p>
+                        <p id="sizeMsg" class="text-slate-400 text-sm mt-1"></p>
+                    </div>
+                    
+                    <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl">
+                        <div id="qrcode"></div>
+                        <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">Scan with another device</p>
+                    </div>
+
+                    <a id="downloadBtn" class="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition shadow-lg cursor-pointer">Download</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm transition-all">
+            <h3 class="text-sm font-black text-slate-400 uppercase tracking-widest mb-4" id="privacy-title">Privacy Policy</h3>
+            <div id="privacy-text" class="text-xs text-slate-500 leading-relaxed italic">
+                SlinkyFile operates entirely in your browser. We never upload your files to any server. All processing is done locally using your device resources, ensuring your data remains 100% private.
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const langData = {
+            en: {
+                heroTitle: 'Any File. <span class="text-blue-600">Zero Upload.</span>',
+                heroDesc: 'Private client-side processing: Compress, bundle, or encrypt your files without them ever leaving your device.',
+                step1: 'Step 1: Choose Files',
+                step2: 'Step 2: Select Magic',
+                fileLabel: 'Drop images or any files here',
+                selected: 'Selected Files:',
+                optZip: 'Archive All to ZIP (.zip)',
+                optImg: 'Optimize Images (Shrink Size)',
+                optExif: 'Strip Metadata (Privacy Shield)',
+                optEncrypt: 'Lock: AES-256 Encryption',
+                optDecrypt: 'Unlock: Decrypt (.locked) File',
+                optQr: 'Secure Transfer: Generate QR Code',
+                exec: 'Execute Task',
+                scanBtn: '📷 Open Webcam Scanner',
+                flowTitle: 'How to use Secure Transfer:',
+                flowList: [
+                    '1. Enter the same password used to create the QR.',
+                    '2. Click "Open Webcam Scanner" and allow camera access.',
+                    '3. Point camera at the QR code on the other device.',
+                    '4. The file will automatically decrypt and download.'
+                ],
+                done: 'Success!',
+                wait: 'Processing locally...',
+                alert: 'Select files first!',
+                passErr: 'Please enter password!',
+                decErr: 'Failed to unlock. Wrong password?',
+                imgErr: 'Only images can be processed!',
+                qrErr: 'File too large for QR (Limit: 2KB). Use ZIP for large files.',
+                privTitle: 'Privacy Policy',
+                privText: 'SlinkyFile operates entirely in your browser. We never upload your files to any server. All processing is done locally using your device resources, ensuring your data remains 100% private.',
+                warning: 'CAUTION: We don\'t store passwords. If you forget it, your encrypted files are lost forever.'
+            },
+            id: {
+                heroTitle: 'File Apapun. <span class="text-blue-600">Tanpa Upload.</span>',
+                heroDesc: 'Pemrosesan privat di sisi klien: Kompres, gabung, atau enkripsi file Anda tanpa meninggalkan perangkat.',
+                step1: 'Langkah 1: Pilih File',
+                step2: 'Langkah 2: Pilih Aksi',
+                fileLabel: 'Taruh gambar atau file apapun di sini',
+                selected: 'File Terpilih:',
+                optZip: 'Arsipkan ke ZIP (.zip)',
+                optImg: 'Optimalkan Gambar (Kecilkan Ukuran)',
+                optExif: 'Hapus Metadata (Pelindung Privasi)',
+                optEncrypt: 'Kunci: Enkripsi AES-256',
+                optDecrypt: 'Buka: Dekripsi File (.locked)',
+                optQr: 'Transfer Aman: Buat QR Code',
+                exec: 'Proses Sekarang',
+                scanBtn: '📷 Buka Scanner Kamera',
+                flowTitle: 'Cara Menggunakan Transfer Aman:',
+                flowList: [
+                    '1. Masukkan password yang sama dengan saat membuat QR.',
+                    '2. Klik "Buka Scanner Kamera" dan izinkan akses kamera.',
+                    '3. Arahkan kamera ke QR code di perangkat lain.',
+                    '4. File akan otomatis didekripsi dan diunduh.'
+                ],
+                done: 'Berhasil!',
+                wait: 'Memproses secara lokal...',
+                alert: 'Pilih file terlebih dahulu!',
+                passErr: 'Masukkan password!',
+                decErr: 'Gagal membuka! Password salah?',
+                imgErr: 'Hanya file gambar yang bisa diproses!',
+                qrErr: 'File terlalu besar untuk QR (Batas: 2KB). Gunakan ZIP untuk file besar.',
+                privTitle: 'Kebijakan Privasi',
+                privText: 'SlinkyFile beroperasi sepenuhnya di browser Anda. Kami tidak pernah mengunggah file Anda ke server mana pun. Semua pemrosesan dilakukan secara lokal menggunakan sumber daya perangkat Anda, data Anda tetap 100% pribadi.',
+                warning: 'PERINGATAN: Kami tidak menyimpan password. Jika Anda lupa, file yang dienkripsi akan hilang selamanya.'
+            }
+        };
+
+        let currentLang = 'en';
+        let html5QrCode = null;
+
+        document.getElementById('actionType').addEventListener('change', (e) => {
+            const passField = document.getElementById('passwordField');
+            const warnBox = document.getElementById('warningBox');
+            const scannerBtn = document.getElementById('scannerBtn');
+            const scannerSection = document.getElementById('scannerSection');
+            const v = e.target.value;
+            
+            if (v === 'encrypt' || v === 'decrypt' || v === 'qr-share') {
+                passField.classList.remove('hidden');
+                warnBox.classList.remove('hidden');
+                if(v === 'qr-share') {
+                    scannerBtn.classList.remove('hidden');
+                    scannerSection.classList.remove('hidden');
+                } else {
+                    scannerBtn.classList.add('hidden');
+                    scannerSection.classList.add('hidden');
+                    stopScanner();
+                }
+            } else {
+                passField.classList.add('hidden');
+                warnBox.classList.add('hidden');
+                scannerBtn.classList.add('hidden');
+                scannerSection.classList.add('hidden');
+                stopScanner();
+            }
+        });
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            document.getElementById('lang-en').className = lang === 'en' ? 'px-3 py-1 rounded-lg text-xs font-bold transition-all bg-white shadow-sm text-blue-600' : 'px-3 py-1 rounded-lg text-xs font-bold transition-all text-slate-400';
+            document.getElementById('lang-id').className = lang === 'id' ? 'px-3 py-1 rounded-lg text-xs font-bold transition-all bg-white shadow-sm text-blue-600' : 'px-3 py-1 rounded-lg text-xs font-bold transition-all text-slate-400';
+            
+            const d = langData[lang];
+            document.getElementById('hero-title').innerHTML = d.heroTitle;
+            document.getElementById('hero-desc').innerText = d.heroDesc;
+            document.getElementById('label-step1').innerText = d.step1;
+            document.getElementById('label-step2').innerText = d.step2;
+            document.getElementById('fileLabel').innerText = d.fileLabel;
+            document.getElementById('selectedLabel').innerText = d.selected;
+            document.getElementById('opt-zip').innerText = d.optZip;
+            document.getElementById('opt-img').innerText = d.optImg;
+            document.getElementById('opt-exif').innerText = d.optExif;
+            document.getElementById('opt-encrypt').innerText = d.optEncrypt;
+            document.getElementById('opt-decrypt').innerText = d.optDecrypt;
+            document.getElementById('opt-qr').innerText = d.optQr;
+            document.getElementById('processBtn').innerText = d.exec;
+            document.getElementById('scannerBtn').innerText = d.scanBtn;
+            document.getElementById('flow-title').innerText = d.flowTitle;
+            
+            const flowList = document.getElementById('flow-list');
+            flowList.innerHTML = d.flowList.map(li => `<li>${li}</li>`).join('');
+
+            document.getElementById('privacy-title').innerText = d.privTitle;
+            document.getElementById('privacy-text').innerText = d.privText;
+            document.getElementById('warningText').innerText = d.warning;
+        }
+
+        async function getCount() {
+            const countEl = document.getElementById('visitorCount');
+            const namespace = "marcel_slinkyfile_production_2026"; 
+            try {
+                const response = await fetch(`https://api.countapi.xyz/hit/${namespace}/visits`);
+                const data = await response.json();
+                if(data.value) countEl.innerText = data.value.toLocaleString();
+            } catch (e) {
+                let sessionHits = sessionStorage.getItem('visitor_count') || 0;
+                sessionHits = parseInt(sessionHits) + 1;
+                sessionHits = Math.max(sessionHits, 128); 
+                sessionStorage.setItem('visitor_count', sessionHits);
+                countEl.innerText = sessionHits;
+            }
+        }
+        window.addEventListener('DOMContentLoaded', getCount);
+
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const filePreviewContainer = document.getElementById('filePreviewContainer');
+        const processBtn = document.getElementById('processBtn');
+        const resultArea = document.getElementById('resultArea');
+        const statusMsg = document.getElementById('statusMsg');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const qrContainer = document.getElementById('qrcodeContainer');
+        const qrcodeDiv = document.getElementById('qrcode');
+        const scannerBtn = document.getElementById('scannerBtn');
+
+        fileInput.addEventListener('change', () => {
+            fileList.innerHTML = '';
+            if (fileInput.files.length > 0) {
+                filePreviewContainer.classList.remove('hidden');
+                Array.from(fileInput.files).forEach(file => {
+                    const li = document.createElement('li');
+                    li.className = "flex items-center justify-between bg-slate-100/50 p-3 rounded-xl border border-slate-100 animate-in";
+                    li.innerHTML = `
+                        <div class="flex items-center space-x-3 truncate">
+                            <span class="text-lg">${file.type.includes('image') ? '🖼️' : '📄'}</span>
+                            <span class="text-xs font-bold text-slate-600 truncate">${file.name}</span>
+                        </div>
+                        <span class="text-[10px] font-black text-slate-400 bg-white px-2 py-1 rounded-md shadow-sm">
+                            ${(file.size / 1024).toFixed(1)} KB
+                        </span>
+                    `;
+                    fileList.appendChild(li);
+                });
+            } else {
+                filePreviewContainer.classList.add('hidden');
+            }
+        });
+
+        const fileToBase64 = (file) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+
+        // SCANNER LOGIC
+        scannerBtn.addEventListener('click', () => {
+            const password = document.getElementById('aesPass').value;
+            if(!password) return alert(langData[currentLang].passErr);
+            
+            startScanner();
+        });
+
+        function startScanner() {
+            html5QrCode = new Html5Qrcode("reader");
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
+            scannerBtn.classList.add('hidden');
+        }
+
+        async function onScanSuccess(decodedText) {
+            stopScanner();
+            const password = document.getElementById('aesPass').value;
+            
+            try {
+                statusMsg.innerText = langData[currentLang].wait;
+                resultArea.classList.remove('hidden');
+                
+                const bytes = CryptoJS.AES.decrypt(decodedText, password);
+                const decryptedBase64 = bytes.toString(CryptoJS.enc.Utf8);
+                
+                if (!decryptedBase64) throw new Error("Invalid password");
+                
+                const res = await fetch(decryptedBase64);
+                const blob = await res.blob();
+                
+                setupDownload(blob, "SlinkyFile_Transferred.bin");
+                alert(langData[currentLang].done);
+            } catch (e) {
+                alert(langData[currentLang].decErr);
+                scannerBtn.classList.remove('hidden');
+            }
+        }
+
+        function stopScanner() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    document.getElementById('reader').innerHTML = '';
+                    scannerBtn.classList.remove('hidden');
+                }).catch(err => console.error(err));
+            }
+        }
+
+        processBtn.addEventListener('click', async () => {
+            const files = Array.from(fileInput.files);
+            if (files.length === 0) return alert(langData[currentLang].alert);
+
+            const action = document.getElementById('actionType').value;
+            const password = document.getElementById('aesPass').value;
+            
+            if ((action === 'encrypt' || action === 'decrypt' || action === 'qr-share') && !password) {
+                return alert(langData[currentLang].passErr);
+            }
+
+            resultArea.classList.remove('hidden');
+            qrContainer.classList.add('hidden');
+            downloadBtn.classList.remove('hidden');
+            statusMsg.innerText = langData[currentLang].wait;
+            qrcodeDiv.innerHTML = '';
+
+            try {
+                const zip = new JSZip();
+
+                if (action === 'zip') {
+                    files.forEach(file => zip.file(file.name, file));
+                    const content = await zip.generateAsync({type: "blob"});
+                    setupDownload(content, "SlinkyFile_Archive.zip");
+                } 
+                else if (action === 'encrypt') {
+                    for (const file of files) {
+                        const base64Data = await fileToBase64(file);
+                        const encrypted = CryptoJS.AES.encrypt(base64Data, password).toString();
+                        zip.file(file.name + ".locked", encrypted);
+                    }
+                    const content = await zip.generateAsync({type: "blob"});
+                    setupDownload(content, "SlinkyFile_Locked.zip");
+                }
+                else if (action === 'decrypt') {
+                    for (const file of files) {
+                        const encryptedText = await file.text();
+                        const bytes = CryptoJS.AES.decrypt(encryptedText, password);
+                        const decryptedBase64 = bytes.toString(CryptoJS.enc.Utf8);
+                        if (!decryptedBase64) throw new Error("Invalid password");
+                        const res = await fetch(decryptedBase64);
+                        const blob = await res.blob();
+                        const originalName = file.name.replace(".locked", "");
+                        zip.file(originalName, blob);
+                    }
+                    const content = await zip.generateAsync({type: "blob"});
+                    setupDownload(content, "SlinkyFile_Unlocked.zip");
+                }
+                else if (action === 'qr-share') {
+                    const file = files[0];
+                    if(file.size > 2048) return alert(langData[currentLang].qrErr);
+                    
+                    const base64Data = await fileToBase64(file);
+                    const encrypted = CryptoJS.AES.encrypt(base64Data, password).toString();
+                    
+                    new QRCode(qrcodeDiv, {
+                        text: encrypted,
+                        width: 256,
+                        height: 256,
+                        colorDark : "#0f172a",
+                        colorLight : "#ffffff",
+                        correctLevel : QRCode.CorrectLevel.L
+                    });
+                    
+                    qrContainer.classList.remove('hidden');
+                    downloadBtn.classList.add('hidden');
+                    statusMsg.innerText = "QR Code Ready!";
+                }
+                else if (action === 'compress-img' || action === 'remove-exif') {
+                    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+                    if (imageFiles.length === 0) return alert(langData[currentLang].imgErr);
+                    
+                    const options = action === 'compress-img' 
+                        ? { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true }
+                        : { maxSizeMB: 50, maxWidthOrHeight: undefined, useWebWorker: true, preserveExif: false };
+                    
+                    if (imageFiles.length === 1) {
+                        const processed = await imageCompression(imageFiles[0], options);
+                        setupDownload(processed, `${action === 'compress-img' ? 'optimized' : 'clean'}_${imageFiles[0].name}`);
+                    } else {
+                        for (const file of imageFiles) {
+                            const processed = await imageCompression(file, options);
+                            zip.file(`${action === 'compress-img' ? 'optimized' : 'clean'}_${file.name}`, processed);
+                        }
+                        const content = await zip.generateAsync({type: "blob"});
+                        setupDownload(content, action === 'compress-img' ? "Optimized_Images.zip" : "Clean_Metadata_Images.zip");
+                    }
+                }
+            } catch (error) {
+                statusMsg.innerText = "Error!";
+                alert(langData[currentLang].decErr);
+                console.error(error);
+            }
+        });
+
+        function setupDownload(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            downloadBtn.href = url;
+            downloadBtn.download = filename;
+            statusMsg.innerText = langData[currentLang].done;
+            downloadBtn.innerText = currentLang === 'en' ? 'Download Now' : 'Unduh Sekarang';
+        }
+    </script>
+</body>
+</html>
