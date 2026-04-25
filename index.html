@@ -326,23 +326,26 @@
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        // --- WEB RTC ENGINE (FIXED) ---
+        // --- WEB RTC ENGINE (RE-BUILT FOR COMPACT QR) ---
         const statusMsg = document.getElementById('statusMsg');
         const qrContainer = document.getElementById('qrcodeContainer');
         const qrcodeDiv = document.getElementById('qrcode');
         const resultArea = document.getElementById('resultArea');
         const downloadBtn = document.getElementById('downloadBtn');
 
-        // Ditambahkan a=candidate agar WebRTC mengetahui IP address untuk dikoneksikan
-        function limitSDP(sdp) {
+        // Kompresi SDP ekstrem agar muat di QR
+        function compressSDP(sdp) {
             return sdp.split('\r\n').filter(line => {
-                return line.startsWith('v=') || line.startsWith('o=') || line.startsWith('s=') || 
-                       line.startsWith('t=') || line.startsWith('m=') || line.startsWith('c=') || 
-                       line.startsWith('a=rtpmap') || line.startsWith('a=fmtp') || 
-                       line.startsWith('a=setup') || line.startsWith('a=mid') ||
-                       line.startsWith('a=fingerprint') || line.startsWith('a=ice-ufrag') ||
-                       line.startsWith('a=ice-pwd') || line.startsWith('a=candidate');
-            }).join('\n');
+                return line.startsWith('a=fingerprint') || line.startsWith('a=ice-ufrag') ||
+                       line.startsWith('a=ice-pwd') || line.startsWith('a=setup') || 
+                       line.startsWith('a=mid') || line.startsWith('c=') || line.startsWith('m=');
+            }).join('|');
+        }
+
+        function decompressSDP(compact, type) {
+            let sdp = `v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\na=msid-semantic: WMS\r\n`;
+            compact.split('|').forEach(line => sdp += line + '\r\n');
+            return sdp;
         }
 
         function startScanner() {
@@ -367,99 +370,66 @@
             const password = document.getElementById('aesPass').value;
             try {
                 const bytes = CryptoJS.AES.decrypt(decodedText, password);
-                const b64 = bytes.toString(CryptoJS.enc.Utf8);
-                const json = pako.inflate(atob(b64), { to: 'string' });
-                const signalData = JSON.parse(json);
+                const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
                 
                 resultArea.classList.remove('hidden');
-                
-                if (signalData.t === 'answer') {
-                    // Pengirim membaca Answer QR Penerima
-                    statusMsg.innerText = "Finalizing Connection...";
+                const fullSDP = decompressSDP(signalData.s, signalData.t);
+
+                if (signalData.t === 'offer') {
+                    statusMsg.innerText = "Processing Offer...";
+                    initWebRTC(false, { type: 'offer', sdp: fullSDP });
+                } else if (signalData.t === 'answer') {
+                    statusMsg.innerText = "Connecting...";
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: fullSDP }));
                     qrContainer.classList.add('hidden');
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') }));
-                } else if (signalData.t === 'offer') {
-                    // Penerima membaca Offer QR Pengirim
-                    statusMsg.innerText = "Generating Answer QR...";
-                    initWebRTC(false, { type: signalData.t, sdp: signalData.s.replace(/\n/g, '\r\n') });
                 }
-            } catch (e) { alert(langData[currentLang].decErr); console.error(e); }
+            } catch (e) { alert(langData[currentLang].decErr); }
         }
 
         function initWebRTC(isSource, remoteSignal = null) {
             const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
             peerConnection = new RTCPeerConnection(config);
 
-            // Dipindahkan keluar blok if agar kedua perangkat meng-generate QR setelah ICE terkumpul
-            peerConnection.onicecandidate = (event) => {
-                if (!event.candidate) { 
-                    generateQRCode(); 
-                }
-            };
-
             if (isSource) {
-                dataChannel = peerConnection.createDataChannel("fileTransfer", { ordered: true });
+                dataChannel = peerConnection.createDataChannel("fileTransfer");
                 setupDataChannel();
                 peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
             } else {
-                peerConnection.ondatachannel = (event) => {
-                    dataChannel = event.channel;
-                    setupDataChannel();
-                };
+                peerConnection.ondatachannel = (e) => { dataChannel = e.channel; setupDataChannel(); };
                 peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
                     .then(() => peerConnection.createAnswer())
                     .then(answer => peerConnection.setLocalDescription(answer));
             }
-        }
 
-        function generateQRCode() {
-            const password = document.getElementById('aesPass').value;
-            const smallSDP = limitSDP(peerConnection.localDescription.sdp);
-            const signalObj = { t: peerConnection.localDescription.type, s: smallSDP };
-            
-            try {
-                const compressed = pako.deflate(JSON.stringify(signalObj), { to: 'string' });
-                const encryptedSignal = CryptoJS.AES.encrypt(btoa(compressed), password).toString();
-                
-                qrcodeDiv.innerHTML = '';
-                new QRCode(qrcodeDiv, { 
-                    text: encryptedSignal, 
-                    width: 280, 
-                    height: 280,
-                    correctLevel: QRCode.CorrectLevel.L
-                });
-                qrContainer.classList.remove('hidden');
-                
-                if (peerConnection.localDescription.type === 'offer') {
-                    statusMsg.innerText = currentLang === 'en' ? "Offer QR Ready! Scan with Receiver." : "QR Offer Siap! Scan di Penerima.";
-                    // Munculkan scanner agar Pengirim bisa scan Answer dari Penerima nanti
-                    const scanBtn = document.getElementById('scannerBtn');
-                    scanBtn.classList.remove('hidden');
-                    scanBtn.innerText = currentLang === 'en' ? "📷 Scan Receiver's Answer QR" : "📷 Scan QR Answer Penerima";
-                } else {
-                    statusMsg.innerText = currentLang === 'en' ? "Answer QR Ready! Scan back on Sender." : "QR Answer Siap! Scan di Pengirim.";
-                    document.getElementById('scannerBtn').classList.add('hidden');
+            peerConnection.onicecandidate = (e) => {
+                if (!e.candidate) { 
+                    const password = document.getElementById('aesPass').value;
+                    const compactSDP = compressSDP(peerConnection.localDescription.sdp);
+                    const signal = JSON.stringify({ t: peerConnection.localDescription.type, s: compactSDP });
+                    const encrypted = CryptoJS.AES.encrypt(signal, password).toString();
+                    
+                    qrcodeDiv.innerHTML = '';
+                    new QRCode(qrcodeDiv, { text: encrypted, width: 280, height: 280 });
+                    qrContainer.classList.remove('hidden');
+                    statusMsg.innerText = isSource ? "Scan Offer QR on Receiver" : "Scan Answer QR back on Sender";
                 }
-            } catch(e) { statusMsg.innerText = "Error generating QR: " + e.message; }
+            };
         }
 
         function setupDataChannel() {
-            dataChannel.onopen = async () => {
-                statusMsg.innerText = "Connected! Transferring...";
+            dataChannel.onopen = () => {
+                statusMsg.innerText = "Connected! Sending...";
                 if (selectedFiles.length > 0) {
                     const file = selectedFiles[0];
                     const reader = new FileReader();
+                    reader.onload = (e) => dataChannel.send(JSON.stringify({ n: file.name, d: e.target.result }));
                     reader.readAsDataURL(file);
-                    reader.onload = () => dataChannel.send(JSON.stringify({ name: file.name, data: reader.result }));
                 }
             };
             dataChannel.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
-                const link = document.createElement('a');
-                link.href = msg.data;
-                link.download = msg.name;
-                link.click();
-                statusMsg.innerText = "Transfer Complete!";
+                const a = document.createElement('a'); a.href = msg.d; a.download = msg.n; a.click();
+                statusMsg.innerText = "File Received!";
             };
         }
 
@@ -505,9 +475,7 @@
                 } else if (action === 'compress-img' || action === 'remove-exif') {
                     const imgs = selectedFiles.filter(f => f.type.startsWith('image/'));
                     const opt = action === 'compress-img' ? { maxSizeMB: 1 } : { preserveExif: false };
-                    
                     const imageCompressor = window.browserImageCompression || window.imageCompression;
-                    
                     for (const f of imgs) {
                         const proc = await imageCompressor(f, opt);
                         zip.file("proc_" + f.name, proc);
