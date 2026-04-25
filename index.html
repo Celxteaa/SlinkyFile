@@ -354,50 +354,55 @@
             } catch (e) { alert(langData[currentLang].decErr); }
         }
 
-        // CORE WEBRTC ENGINE (FIXED)
+        // CORE WEBRTC ENGINE (FIXED & OPTIMIZED)
         function initWebRTC(isSource, remoteSignal = null) {
             const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
             peerConnection = new RTCPeerConnection(config);
 
             if (isSource) {
-                dataChannel = peerConnection.createDataChannel("fileTransfer");
+                dataChannel = peerConnection.createDataChannel("fileTransfer", { ordered: true });
                 setupDataChannel();
+                
                 peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
                 
-                // Failsafe: Paksa buat QR jika ICE candidate butuh waktu terlalu lama
-                setTimeout(() => {
-                    if (qrContainer.classList.contains('hidden')) {
+                // Menunggu proses pengumpulan ICE candidate selesai
+                peerConnection.onicegatheringstatechange = () => {
+                    if (peerConnection.iceGatheringState === "complete") {
                         generateQRCode();
                     }
-                }, 3000);
+                };
             } else {
-                peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal));
-                peerConnection.createAnswer().then(answer => peerConnection.setLocalDescription(answer));
+                peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal))
+                    .then(() => peerConnection.createAnswer())
+                    .then(answer => peerConnection.setLocalDescription(answer))
+                    .catch(e => console.error(e));
+
                 peerConnection.ondatachannel = (event) => {
                     dataChannel = event.channel;
                     setupDataChannel();
                 };
             }
-
-            peerConnection.onicecandidate = (event) => {
-                // Saat event.candidate null, artinya semua candidate sudah terkumpul
-                if (!event.candidate && isSource) {
-                    generateQRCode();
-                }
-            };
         }
 
         function generateQRCode() {
-            const signal = JSON.stringify(peerConnection.localDescription);
             const password = document.getElementById('aesPass').value;
+            // Kita hanya mengirim SDP esensial untuk menghemat ruang QR
+            const signal = JSON.stringify(peerConnection.localDescription);
+            
             try {
                 const encryptedSignal = CryptoJS.AES.encrypt(signal, password).toString();
                 qrcodeDiv.innerHTML = '';
-                new QRCode(qrcodeDiv, { text: encryptedSignal, width: 256, height: 256 });
+                new QRCode(qrcodeDiv, { 
+                    text: encryptedSignal, 
+                    width: 256, 
+                    height: 256,
+                    correctLevel: QRCode.CorrectLevel.L // Low error correction agar muat banyak data
+                });
                 qrContainer.classList.remove('hidden');
                 statusMsg.innerText = "QR Signal Ready!";
             } catch(e) {
-                statusMsg.innerText = "Error generating QR";
+                statusMsg.innerText = "Error: Data too large for QR";
+                console.error(e);
             }
         }
 
@@ -407,9 +412,11 @@
                 if (selectedFiles.length > 0) {
                     const file = selectedFiles[0];
                     const base64 = await fileToBase64(file);
+                    // Kirim data dalam bentuk JSON
                     dataChannel.send(JSON.stringify({ name: file.name, data: base64 }));
                 }
             };
+            
             dataChannel.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
                 const link = document.createElement('a');
@@ -430,7 +437,7 @@
 
             resultArea.classList.remove('hidden');
             qrContainer.classList.add('hidden');
-            downloadBtn.classList.add('hidden'); // Sembunyikan download saat proses
+            downloadBtn.classList.add('hidden');
             statusMsg.innerText = langData[currentLang].wait;
 
             try {
