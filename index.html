@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SlinkyFile | Private File Tools (Image, ZIP & AES)</title>
+    <title>SlinkyFile | Private File Tools (Image, ZIP & WebRTC)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -65,7 +65,7 @@
                     
                     <div id="filePreviewContainer" class="hidden">
                         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-2" id="selectedLabel">Selected Files:</p>
-                        <ul id="fileList" class="space-y-2 max-h-40 overflow-y-auto file-list-scroll pr-2"></ul>
+                        <ul id="fileList" class="space-y-2 max-h-60 overflow-y-auto file-list-scroll pr-2"></ul>
                     </div>
                 </div>
 
@@ -78,7 +78,7 @@
                             <option value="remove-exif" id="opt-exif">Strip Metadata (Privacy Shield)</option>
                             <option value="encrypt" id="opt-encrypt">Lock: AES-256 Encryption</option>
                             <option value="decrypt" id="opt-decrypt">Unlock: Decrypt (.locked) File</option>
-                            <option value="qr-share" id="opt-qr">Secure Transfer: Generate QR Code</option>
+                            <option value="qr-share" id="opt-qr">Secure Transfer: WebRTC QR</option>
                         </select>
 
                         <div id="passwordField" class="hidden animate-in">
@@ -113,7 +113,7 @@
                         <li>1. Enter the same password used to create the QR.</li>
                         <li>2. Click 'Open Webcam Scanner' and allow camera access.</li>
                         <li>3. Point camera at the QR code on the other device.</li>
-                        <li>4. The file will automatically decrypt and download.</li>
+                        <li>4. The file will automatically transfer via WebRTC.</li>
                     </ul>
                 </div>
             </div>
@@ -127,7 +127,7 @@
                     
                     <div id="qrcodeContainer" class="hidden bg-white p-4 rounded-2xl">
                         <div id="qrcode"></div>
-                        <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">Scan with another device</p>
+                        <p class="text-[10px] text-slate-500 font-bold mt-4 text-center uppercase tracking-widest">Scan with receiver device</p>
                     </div>
 
                     <a id="downloadBtn" class="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition shadow-lg cursor-pointer">Download</a>
@@ -157,7 +157,7 @@
                 optExif: 'Strip Metadata (Privacy Shield)',
                 optEncrypt: 'Lock: AES-256 Encryption',
                 optDecrypt: 'Unlock: Decrypt (.locked) File',
-                optQr: 'Secure Transfer: Generate QR Code',
+                optQr: 'Secure Transfer: WebRTC QR',
                 exec: 'Execute Task',
                 scanBtn: '📷 Open Webcam Scanner',
                 flowTitle: 'How to use Secure Transfer:',
@@ -165,15 +165,15 @@
                     '1. Enter the same password used to create the QR.',
                     '2. Click "Open Webcam Scanner" and allow camera access.',
                     '3. Point camera at the QR code on the other device.',
-                    '4. The file will automatically decrypt and download.'
+                    '4. Data will flow via WebRTC P2P Channel.'
                 ],
                 done: 'Success!',
                 wait: 'Processing locally...',
                 alert: 'Select files first!',
                 passErr: 'Please enter password!',
-                decErr: 'Failed to unlock. Wrong password?',
+                decErr: 'Failed. Check password or connection.',
                 imgErr: 'Only images can be processed!',
-                qrErr: 'File too large for QR (Limit: 2KB). Use ZIP for large files.',
+                qrErr: 'Metadata too large for QR.',
                 privTitle: 'Privacy Policy',
                 privText: 'SlinkyFile operates entirely in your browser. We never upload your files to any server. All processing is done locally using your device resources, ensuring your data remains 100% private.',
                 warning: 'CAUTION: We don\'t store passwords. If you forget it, your encrypted files are lost forever.'
@@ -190,7 +190,7 @@
                 optExif: 'Hapus Metadata (Pelindung Privasi)',
                 optEncrypt: 'Kunci: Enkripsi AES-256',
                 optDecrypt: 'Buka: Dekripsi File (.locked)',
-                optQr: 'Transfer Aman: Buat QR Code',
+                optQr: 'Transfer Aman: WebRTC QR',
                 exec: 'Proses Sekarang',
                 scanBtn: '📷 Buka Scanner Kamera',
                 flowTitle: 'Cara Menggunakan:',
@@ -198,15 +198,15 @@
                     '1. Masukkan password yang sama dengan saat membuat QR.',
                     '2. Klik "Buka Scanner Kamera" dan izinkan akses kamera.',
                     '3. Arahkan kamera ke QR code di perangkat lain.',
-                    '4. File akan otomatis didekripsi dan diunduh.'
+                    '4. Data mengalir via Jalur Privat WebRTC.'
                 ],
                 done: 'Berhasil!',
                 wait: 'Memproses secara lokal...',
                 alert: 'Pilih file terlebih dahulu!',
                 passErr: 'Masukkan password!',
-                decErr: 'Gagal membuka! Password salah?',
+                decErr: 'Gagal! Periksa password atau koneksi.',
                 imgErr: 'Hanya file gambar yang bisa diproses!',
-                qrErr: 'File terlalu besar untuk QR (Batas: 2KB). Gunakan ZIP untuk file besar.',
+                qrErr: 'Metadata terlalu besar untuk QR.',
                 privTitle: 'Kebijakan Privasi',
                 privText: 'SlinkyFile beroperasi sepenuhnya di browser Anda. Kami tidak pernah mengunggah file Anda ke server mana pun. Semua pemrosesan dilakukan secara lokal menggunakan sumber daya perangkat Anda, data Anda tetap 100% pribadi.',
                 warning: 'PERINGATAN: Kami tidak menyimpan password. Jika Anda lupa, file yang dienkripsi akan hilang selamanya.'
@@ -215,6 +215,33 @@
 
         let currentLang = 'en';
         let html5QrCode = null;
+        let selectedFiles = [];
+        let peerConnection = null;
+        let dataChannel = null;
+
+        // UI ACTIONS
+        function renderFileList() {
+            const fileList = document.getElementById('fileList');
+            const filePreviewContainer = document.getElementById('filePreviewContainer');
+            fileList.innerHTML = '';
+            if (selectedFiles.length > 0) {
+                filePreviewContainer.classList.remove('hidden');
+                selectedFiles.forEach((file, index) => {
+                    const li = document.createElement('li');
+                    li.className = "flex items-center justify-between bg-slate-100/50 p-3 rounded-xl border border-slate-100 animate-in";
+                    li.innerHTML = `<div class="flex items-center space-x-3 truncate"><span class="text-lg">${file.type.includes('image') ? '🖼️' : '📄'}</span><span class="text-xs font-bold text-slate-600 truncate">${file.name}</span></div><div class="flex items-center space-x-2"><span class="text-[10px] font-black text-slate-400 bg-white px-2 py-1 rounded-md shadow-sm">${(file.size / 1024).toFixed(1)} KB</span><button onclick="removeFile(${index})" class="text-red-400 hover:text-red-600 font-bold p-1">✕</button></div>`;
+                    fileList.appendChild(li);
+                });
+            } else { filePreviewContainer.classList.add('hidden'); }
+        }
+
+        function removeFile(index) { selectedFiles.splice(index, 1); renderFileList(); }
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            selectedFiles = [...selectedFiles, ...Array.from(e.target.files)];
+            renderFileList();
+            e.target.value = '';
+        });
 
         document.getElementById('actionType').addEventListener('change', (e) => {
             const passField = document.getElementById('passwordField');
@@ -222,33 +249,23 @@
             const scannerBtn = document.getElementById('scannerBtn');
             const scannerSection = document.getElementById('scannerSection');
             const v = e.target.value;
-            
             if (v === 'encrypt' || v === 'decrypt' || v === 'qr-share') {
                 passField.classList.remove('hidden');
                 warnBox.classList.remove('hidden');
-                if(v === 'qr-share') {
-                    scannerBtn.classList.remove('hidden');
-                    scannerSection.classList.remove('hidden');
-                } else {
-                    scannerBtn.classList.add('hidden');
-                    scannerSection.classList.add('hidden');
-                    stopScanner();
-                }
+                if(v === 'qr-share') { scannerBtn.classList.remove('hidden'); scannerSection.classList.remove('hidden'); }
+                else { scannerBtn.classList.add('hidden'); scannerSection.classList.add('hidden'); stopScanner(); }
             } else {
-                passField.classList.add('hidden');
-                warnBox.classList.add('hidden');
-                scannerBtn.classList.add('hidden');
-                scannerSection.classList.add('hidden');
+                passField.classList.add('hidden'); warnBox.classList.add('hidden');
+                scannerBtn.classList.add('hidden'); scannerSection.classList.add('hidden');
                 stopScanner();
             }
         });
 
         function setLanguage(lang) {
             currentLang = lang;
+            const d = langData[lang];
             document.getElementById('lang-en').className = lang === 'en' ? 'px-3 py-1 rounded-lg text-xs font-bold transition-all bg-white shadow-sm text-blue-600' : 'px-3 py-1 rounded-lg text-xs font-bold transition-all text-slate-400';
             document.getElementById('lang-id').className = lang === 'id' ? 'px-3 py-1 rounded-lg text-xs font-bold transition-all bg-white shadow-sm text-blue-600' : 'px-3 py-1 rounded-lg text-xs font-bold transition-all text-slate-400';
-            
-            const d = langData[lang];
             document.getElementById('hero-title').innerHTML = d.heroTitle;
             document.getElementById('hero-desc').innerText = d.heroDesc;
             document.getElementById('label-step1').innerText = d.step1;
@@ -264,10 +281,7 @@
             document.getElementById('processBtn').innerText = d.exec;
             document.getElementById('scannerBtn').innerText = d.scanBtn;
             document.getElementById('flow-title').innerText = d.flowTitle;
-            
-            const flowList = document.getElementById('flow-list');
-            flowList.innerHTML = d.flowList.map(li => `<li>${li}</li>`).join('');
-
+            document.getElementById('flow-list').innerHTML = d.flowList.map(li => `<li>${li}</li>`).join('');
             document.getElementById('privacy-title').innerText = d.privTitle;
             document.getElementById('privacy-text').innerText = d.privText;
             document.getElementById('warningText').innerText = d.warning;
@@ -275,24 +289,19 @@
 
         async function getCount() {
             const countEl = document.getElementById('visitorCount');
-            const namespace = "marcel_slinkyfile_production_2026"; 
             try {
-                const response = await fetch(`https://api.countapi.xyz/hit/${namespace}/visits`);
-                const data = await response.json();
-                if(data.value) countEl.innerText = data.value.toLocaleString();
+                const res = await fetch(`https://api.countapi.xyz/hit/marcel_slinkyfile_2026/visits`);
+                const data = await res.json();
+                countEl.innerText = data.value.toLocaleString();
             } catch (e) {
-                let sessionHits = sessionStorage.getItem('visitor_count') || 0;
-                sessionHits = parseInt(sessionHits) + 1;
-                sessionHits = Math.max(sessionHits, 128); 
-                sessionStorage.setItem('visitor_count', sessionHits);
+                let sessionHits = parseInt(sessionStorage.getItem('v_c') || 128) + 1;
+                sessionStorage.setItem('v_c', sessionHits);
                 countEl.innerText = sessionHits;
             }
         }
         window.addEventListener('DOMContentLoaded', getCount);
 
-        const fileInput = document.getElementById('fileInput');
-        const fileList = document.getElementById('fileList');
-        const filePreviewContainer = document.getElementById('filePreviewContainer');
+        // WEB RTC & QR LOGIC
         const processBtn = document.getElementById('processBtn');
         const resultArea = document.getElementById('resultArea');
         const statusMsg = document.getElementById('statusMsg');
@@ -301,104 +310,25 @@
         const qrcodeDiv = document.getElementById('qrcode');
         const scannerBtn = document.getElementById('scannerBtn');
 
-        fileInput.addEventListener('change', () => {
-            fileList.innerHTML = '';
-            if (fileInput.files.length > 0) {
-                filePreviewContainer.classList.remove('hidden');
-                Array.from(fileInput.files).forEach(file => {
-                    const li = document.createElement('li');
-                    li.className = "flex items-center justify-between bg-slate-100/50 p-3 rounded-xl border border-slate-100 animate-in";
-                    li.innerHTML = `
-                        <div class="flex items-center space-x-3 truncate">
-                            <span class="text-lg">${file.type.includes('image') ? '🖼️' : '📄'}</span>
-                            <span class="text-xs font-bold text-slate-600 truncate">${file.name}</span>
-                        </div>
-                        <span class="text-[10px] font-black text-slate-400 bg-white px-2 py-1 rounded-md shadow-sm">
-                            ${(file.size / 1024).toFixed(1)} KB
-                        </span>
-                    `;
-                    fileList.appendChild(li);
-                });
-            } else {
-                filePreviewContainer.classList.add('hidden');
-            }
-        });
-
-        const fileToBase64 = (file) => new Promise((resolve, reject) => {
+        const fileToBase64 = (file) => new Promise((r, j) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = error => reject(error);
+            reader.onload = () => r(reader.result);
+            reader.onerror = e => j(e);
         });
 
-        // SCANNER LOGIC
+        // SCANNER
         scannerBtn.addEventListener('click', () => {
-            const password = document.getElementById('aesPass').value;
-            if(!password) return alert(langData[currentLang].passErr);
+            if(!document.getElementById('aesPass').value) return alert(langData[currentLang].passErr);
             startScanner();
         });
 
         function startScanner() {
             document.getElementById('reader').innerHTML = '';
             html5QrCode = new Html5Qrcode("reader");
-            const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
-            
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
-                .catch(err => {
-                    console.error(err);
-                    alert("Akses kamera ditolak. Gunakan HTTPS.");
-                });
+            html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScanSuccess)
+            .catch(e => alert("Camera error. Use HTTPS."));
             scannerBtn.classList.add('hidden');
-        }
-
-        async function onScanSuccess(decodedText) {
-            stopScanner();
-            const password = document.getElementById('aesPass').value;
-            
-            try {
-                statusMsg.innerText = langData[currentLang].wait;
-                resultArea.classList.remove('hidden');
-                
-                const bytes = CryptoJS.AES.decrypt(decodedText, password);
-                const decryptedRaw = bytes.toString(CryptoJS.enc.Utf8);
-                
-                if (!decryptedRaw) throw new Error("Invalid password");
-
-                // Memisahkan metadata nama file (Pemisah |||)
-                const parts = decryptedRaw.split("|||");
-                let fileName = "SlinkyFile_Transferred.bin";
-                let base64Data = "";
-
-                if (parts.length > 1) {
-                    fileName = parts[0];
-                    base64Data = parts[1];
-                } else {
-                    base64Data = parts[0];
-                }
-                
-                const res = await fetch(base64Data);
-                const blob = await res.blob();
-                
-                // SETUP DOWNLOAD & OTOMATIS TRIGGER
-                const url = URL.createObjectURL(blob);
-                downloadBtn.href = url;
-                downloadBtn.download = fileName;
-                statusMsg.innerText = langData[currentLang].done;
-                downloadBtn.innerText = currentLang === 'en' ? 'Download Now' : 'Unduh Sekarang';
-                
-                // OTOMATIS DOWNLOAD
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = fileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                alert(langData[currentLang].done);
-            } catch (e) {
-                alert(langData[currentLang].decErr);
-                scannerBtn.classList.remove('hidden');
-            }
         }
 
         function stopScanner() {
@@ -406,103 +336,145 @@
                 html5QrCode.stop().then(() => {
                     document.getElementById('reader').innerHTML = '';
                     scannerBtn.classList.remove('hidden');
-                }).catch(err => console.error(err));
+                }).catch(e => console.log(e));
             }
         }
 
-        processBtn.addEventListener('click', async () => {
-            const files = Array.from(fileInput.files);
-            if (files.length === 0) return alert(langData[currentLang].alert);
+        async function onScanSuccess(decodedText) {
+            stopScanner();
+            const password = document.getElementById('aesPass').value;
+            try {
+                const bytes = CryptoJS.AES.decrypt(decodedText, password);
+                const signalData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+                
+                statusMsg.innerText = "Connecting P2P...";
+                resultArea.classList.remove('hidden');
+                
+                initWebRTC(false, signalData);
+            } catch (e) { alert(langData[currentLang].decErr); }
+        }
 
+        // CORE WEBRTC ENGINE (FIXED)
+        function initWebRTC(isSource, remoteSignal = null) {
+            const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+            peerConnection = new RTCPeerConnection(config);
+
+            if (isSource) {
+                dataChannel = peerConnection.createDataChannel("fileTransfer");
+                setupDataChannel();
+                peerConnection.createOffer().then(offer => peerConnection.setLocalDescription(offer));
+                
+                // Failsafe: Paksa buat QR jika ICE candidate butuh waktu terlalu lama
+                setTimeout(() => {
+                    if (qrContainer.classList.contains('hidden')) {
+                        generateQRCode();
+                    }
+                }, 3000);
+            } else {
+                peerConnection.setRemoteDescription(new RTCSessionDescription(remoteSignal));
+                peerConnection.createAnswer().then(answer => peerConnection.setLocalDescription(answer));
+                peerConnection.ondatachannel = (event) => {
+                    dataChannel = event.channel;
+                    setupDataChannel();
+                };
+            }
+
+            peerConnection.onicecandidate = (event) => {
+                // Saat event.candidate null, artinya semua candidate sudah terkumpul
+                if (!event.candidate && isSource) {
+                    generateQRCode();
+                }
+            };
+        }
+
+        function generateQRCode() {
+            const signal = JSON.stringify(peerConnection.localDescription);
+            const password = document.getElementById('aesPass').value;
+            try {
+                const encryptedSignal = CryptoJS.AES.encrypt(signal, password).toString();
+                qrcodeDiv.innerHTML = '';
+                new QRCode(qrcodeDiv, { text: encryptedSignal, width: 256, height: 256 });
+                qrContainer.classList.remove('hidden');
+                statusMsg.innerText = "QR Signal Ready!";
+            } catch(e) {
+                statusMsg.innerText = "Error generating QR";
+            }
+        }
+
+        function setupDataChannel() {
+            dataChannel.onopen = async () => {
+                statusMsg.innerText = "Connected! Transferring...";
+                if (selectedFiles.length > 0) {
+                    const file = selectedFiles[0];
+                    const base64 = await fileToBase64(file);
+                    dataChannel.send(JSON.stringify({ name: file.name, data: base64 }));
+                }
+            };
+            dataChannel.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                const link = document.createElement('a');
+                link.href = msg.data;
+                link.download = msg.name;
+                link.click();
+                statusMsg.innerText = "Transfer Complete!";
+            };
+        }
+
+        // MAIN PROCESSOR
+        processBtn.addEventListener('click', async () => {
             const action = document.getElementById('actionType').value;
             const password = document.getElementById('aesPass').value;
             
-            if ((action === 'encrypt' || action === 'decrypt' || action === 'qr-share') && !password) {
-                return alert(langData[currentLang].passErr);
-            }
+            if (selectedFiles.length === 0) return alert(langData[currentLang].alert);
+            if ((action.includes('encrypt') || action === 'qr-share') && !password) return alert(langData[currentLang].passErr);
 
             resultArea.classList.remove('hidden');
             qrContainer.classList.add('hidden');
-            downloadBtn.classList.remove('hidden');
+            downloadBtn.classList.add('hidden'); // Sembunyikan download saat proses
             statusMsg.innerText = langData[currentLang].wait;
-            qrcodeDiv.innerHTML = '';
 
             try {
                 const zip = new JSZip();
-
-                if (action === 'zip') {
-                    files.forEach(file => zip.file(file.name, file));
+                if (action === 'qr-share') {
+                    initWebRTC(true);
+                } 
+                else if (action === 'zip') {
+                    selectedFiles.forEach(f => zip.file(f.name, f));
                     const content = await zip.generateAsync({type: "blob"});
                     setupDownload(content, "SlinkyFile_Archive.zip");
-                } 
+                }
                 else if (action === 'encrypt') {
-                    for (const file of files) {
-                        const base64Data = await fileToBase64(file);
-                        const encrypted = CryptoJS.AES.encrypt(base64Data, password).toString();
-                        zip.file(file.name + ".locked", encrypted);
+                    for (const f of selectedFiles) {
+                        const b64 = await fileToBase64(f);
+                        const enc = CryptoJS.AES.encrypt(b64, password).toString();
+                        zip.file(f.name + ".locked", enc);
                     }
                     const content = await zip.generateAsync({type: "blob"});
                     setupDownload(content, "SlinkyFile_Locked.zip");
                 }
                 else if (action === 'decrypt') {
-                    for (const file of files) {
-                        const encryptedText = await file.text();
-                        const bytes = CryptoJS.AES.decrypt(encryptedText, password);
-                        const decryptedBase64 = bytes.toString(CryptoJS.enc.Utf8);
-                        if (!decryptedBase64) throw new Error("Invalid password");
-                        const res = await fetch(decryptedBase64);
-                        const blob = await res.blob();
-                        const originalName = file.name.replace(".locked", "");
-                        zip.file(originalName, blob);
+                    for (const f of selectedFiles) {
+                        const txt = await f.text();
+                        const dec = CryptoJS.AES.decrypt(txt, password).toString(CryptoJS.enc.Utf8);
+                        const res = await fetch(dec);
+                        zip.file(f.name.replace(".locked", ""), await res.blob());
                     }
                     const content = await zip.generateAsync({type: "blob"});
                     setupDownload(content, "SlinkyFile_Unlocked.zip");
                 }
-                else if (action === 'qr-share') {
-                    const file = files[0];
-                    if(file.size > 2048) return alert(langData[currentLang].qrErr);
-                    
-                    const base64Data = await fileToBase64(file);
-                    const combined = file.name + "|||" + base64Data;
-                    const encrypted = CryptoJS.AES.encrypt(combined, password).toString();
-                    
-                    new QRCode(qrcodeDiv, {
-                        text: encrypted,
-                        width: 256,
-                        height: 256,
-                        colorDark : "#0f172a",
-                        colorLight : "#ffffff",
-                        correctLevel : QRCode.CorrectLevel.L
-                    });
-                    
-                    qrContainer.classList.remove('hidden');
-                    downloadBtn.classList.add('hidden');
-                    statusMsg.innerText = "QR Code Ready!";
-                }
                 else if (action === 'compress-img' || action === 'remove-exif') {
-                    const imageFiles = files.filter(f => f.type.startsWith('image/'));
-                    if (imageFiles.length === 0) return alert(langData[currentLang].imgErr);
-                    
-                    const options = action === 'compress-img' 
-                        ? { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true }
-                        : { maxSizeMB: 50, maxWidthOrHeight: undefined, useWebWorker: true, preserveExif: false };
-                    
-                    if (imageFiles.length === 1) {
-                        const processed = await imageCompression(imageFiles[0], options);
-                        setupDownload(processed, `${action === 'compress-img' ? 'optimized' : 'clean'}_${imageFiles[0].name}`);
-                    } else {
-                        for (const file of imageFiles) {
-                            const processed = await imageCompression(file, options);
-                            zip.file(`${action === 'compress-img' ? 'optimized' : 'clean'}_${file.name}`, processed);
-                        }
-                        const content = await zip.generateAsync({type: "blob"});
-                        setupDownload(content, action === 'compress-img' ? "Optimized_Images.zip" : "Clean_Metadata_Images.zip");
+                    const imgs = selectedFiles.filter(f => f.type.startsWith('image/'));
+                    const opt = action === 'compress-img' ? { maxSizeMB: 1 } : { preserveExif: false };
+                    for (const f of imgs) {
+                        const proc = await imageCompression(f, opt);
+                        zip.file("proc_" + f.name, proc);
                     }
+                    const content = await zip.generateAsync({type: "blob"});
+                    setupDownload(content, "SlinkyFile_Images.zip");
                 }
-            } catch (error) {
-                statusMsg.innerText = "Error!";
-                alert(langData[currentLang].decErr);
-                console.error(error);
+            } catch (e) { 
+                console.error(e);
+                statusMsg.innerText = "Error!"; 
             }
         });
 
@@ -512,6 +484,7 @@
             downloadBtn.download = filename;
             statusMsg.innerText = langData[currentLang].done;
             downloadBtn.innerText = currentLang === 'en' ? 'Download Now' : 'Unduh Sekarang';
+            downloadBtn.classList.remove('hidden');
         }
     </script>
 </body>
